@@ -223,6 +223,50 @@ class S2ManifoldDataGenerator(DataGenerator):
         
         return points
     
+    def fib_sphere(self, theta_grid, phi_grid, radius=1.0, center=None):
+        """
+        Generate points on a Fibonacci sphere.
+        
+        Args:
+            theta_grid: Grid of theta values
+            phi_grid: Grid of phi values
+            radius: Sphere radius
+            center: Sphere center coordinates, default is origin [0,0,0]
+            
+        Returns:
+            points: 3D Cartesian coordinates on the Fibonacci sphere
+        """
+        if center is None:
+            center = jnp.array([0.0, 0.0, 0.0])
+        
+        n_points = theta_grid.shape[0] * theta_grid.shape[1]
+        golden_ratio = (1 + jnp.sqrt(5)) / 2
+        golden_angle = jnp.pi * (3 - jnp.sqrt(5))
+        
+        indices = jnp.arange(n_points)
+        z = 1 - (2 * indices + 1) / n_points
+        theta = jnp.arccos(z)
+        phi = golden_angle * indices
+        
+        # Convert spherical to Cartesian coordinates
+        x = radius * jnp.sin(theta) * jnp.cos(phi)
+        y = radius * jnp.sin(theta) * jnp.sin(phi)
+        z = radius * jnp.cos(theta)
+        
+        # Apply center offset   
+        x = x + center[0]
+        y = y + center[1]
+        z = z + center[2]
+        
+        # Combine coordinates
+        points = jnp.stack([x, y, z], axis=-1)
+
+        n_L = theta_grid.shape[0]
+        n_m = theta_grid.shape[1]
+        points = jnp.reshape(points, (n_L, n_m, 3))
+        
+        return points
+    
     def generate_data(self, L, batch_size=1, **kwargs):
         """
         Generate data on the specified manifold with s2fft-compatible sampling.
@@ -253,6 +297,8 @@ class S2ManifoldDataGenerator(DataGenerator):
             points = self.torus(theta_grid, phi_grid, self.major_radius, self.minor_radius, self.center)
         elif self.manifold_type == 'mobius':
             points = self.mobius_strip(theta_grid, phi_grid, self.radius, self.width, self.center)
+        elif self.manifold_type == 'fib_sphere':
+            points = self.fib_sphere(theta_grid, phi_grid, self.radius, self.center)
         else:
             raise ValueError(f"Unsupported manifold type: {self.manifold_type}")
         

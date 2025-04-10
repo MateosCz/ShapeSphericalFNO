@@ -36,7 +36,7 @@ def project_root():
 
 if __name__ == "__main__":
     # jax.clear_caches()
-    train_steps = 1000
+    train_steps = 300
     retrain = False
     retrain_steps = 500
     draw_unconditional = False
@@ -48,21 +48,21 @@ if __name__ == "__main__":
     sphere_data_generator_X0 = S2ManifoldDataGenerator(radius=0.7, seed=get_random_int(), flatten=True)
     x0 = sphere_data_generator_X0.generate_data(in_grid_L, 5)
     print(x0.shape)
-    sde_3d = Brownian_Motion_SDE_Flatten(dim=3, sigma=0.03, x0=x0[0])
+    sde_3d = Brownian_Motion_SDE_Flatten(dim=3, sigma=0.1, x0=x0[0])
     # sde_3d = Kunita_Flow_SDE_3D_Eulerian(k_alpha=1.6, k_sigma=0.4, grid_num=10, grid_range=[-1,1], x0=x0[0])
     sde_solver = EulerMaruyama.from_sde(sde_3d, 0.02, 1.0, 3, None,debug_mode=False)
     xs,_ = sde_solver.solve(x0[0], rng_key=jrandom.PRNGKey(get_random_int()))
 
     
     if not draw_unconditional:
-        model = CTShapeSFNO(x_feature_dim=3, l_list=(10, 6,3), lift_dim=8, latent_feature_dims=(4, 6,8), sampling="mw", activation="leaky_relu")
+        model = CTShapeSFNO(x_feature_dim=3, l_list=(10, 6,3), lift_dim=8, latent_feature_dims=(4, 6,8), sampling="dh", activation="gelu")
         trainer = Trainer.NeuralOpTrainer(seed=get_random_int(), landmark_num=in_grid_L)
 
         checkpoint_path = project_root() + '/checkpoints/sphere_model_neuralOp_1D_brownian'
         retrain_checkpoint_path = project_root() + '/checkpoints/sphere_model_retrain_neuralOp_1D_brownian'
     
         if not os.path.exists(checkpoint_path):
-            train_state = trainer.train_state_init(model, lr=1e-3, model_kwargs={'x': jax.random.normal(jrandom.PRNGKey(get_random_int()), x0[0].shape), 't': jnp.array([0]),'object_fn': 'Heng', 'x_L': in_grid_L})
+            train_state = trainer.train_state_init(model, lr=1e-4, model_kwargs={'x': jax.random.normal(jrandom.PRNGKey(get_random_int()), x0[0].shape), 't': jnp.array([0]),'object_fn': 'infinite', 'x_L': in_grid_L})
             train_state, train_loss = trainer.train(train_state, sde_3d, sde_solver, sphere_data_generator_X0, train_steps, 16, x_L=in_grid_L)
             plt.plot(train_loss)
             plt.show()
@@ -73,7 +73,7 @@ if __name__ == "__main__":
         else:
             restored_checkpoint = checkpoints.restore_checkpoint(checkpoint_path, target=None)
             params = restored_checkpoint["model"]["params"]
-            train_state = trainer.train_state_init(model, lr=1e-3, model_kwargs={'x': jax.random.normal(jrandom.PRNGKey(get_random_int()), x0[0].shape), 't': jnp.array([0]),'object_fn': 'Heng', 'x_L': in_grid_L}, retrain=True, ckpt_params=params)
+            train_state = trainer.train_state_init(model, lr=1e-4, model_kwargs={'x': jax.random.normal(jrandom.PRNGKey(get_random_int()), x0[0].shape), 't': jnp.array([0]),'object_fn': 'infinite', 'x_L': in_grid_L}, retrain=True, ckpt_params=params)
             if retrain:
                 train_state, train_loss = trainer.train(train_state, sde_3d, sde_solver, sphere_data_generator_X0, retrain_steps, 16, x_L=in_grid_L)
                 plt.plot(train_loss)
@@ -86,8 +86,8 @@ if __name__ == "__main__":
         score_fn = lambda x, t, x0: train_state.apply_fn(train_state.params, x, t, x_L=test_in_grid_L)
         x0 = sphere_data_generator_X0.generate_data(test_in_grid_L, 5)
         xT = sphere_data_generator_XT.generate_data(test_in_grid_L, 1)   
-        sde_3d = Brownian_Motion_SDE_Flatten(dim=3, sigma=0.03, x0=x0[0])
-        reverse_sde = Time_Reversed_SDE(sde_3d, score_fn, 1.0,0.02)
+        sde_3d = Brownian_Motion_SDE_Flatten(dim=3, sigma=0.1, x0=x0[0])
+        reverse_sde = Time_Reversed_SDE_infinite(sde_3d, score_fn, 1.0,0.02)
         reverse_solver = EulerMaruyama.from_sde(reverse_sde, 0.02, 1.0, 3, condition_x=x0[0],debug_mode=False)
         condition_xs,_ = reverse_solver.solve(xT[0], rng_key=jrandom.PRNGKey(get_random_int()))
         # condition_xs = xs

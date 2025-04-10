@@ -36,16 +36,16 @@ def project_root():
 
 if __name__ == "__main__":
     jax.clear_caches()
-    train_steps = 100
+    train_steps = 200
     retrain = False
     retrain_steps = 500
     draw_unconditional = False
     in_grid_L = 12
-    sphere_data_generator_XT = S2ManifoldDataGenerator(seed=get_random_int())
+    sphere_data_generator_XT = S2ManifoldDataGenerator(radius=0.7, sampling="mw", manifold_type="fib_sphere", seed=get_random_int())
 
     xT = sphere_data_generator_XT.generate_data(in_grid_L, 1)
     print(xT.shape)
-    sphere_data_generator_X0 = S2ManifoldDataGenerator(radius=0.7, seed=get_random_int())
+    sphere_data_generator_X0 = S2ManifoldDataGenerator(radius=0.5, sampling="mw", manifold_type="fib_sphere", seed=get_random_int())
     x0 = sphere_data_generator_X0.generate_data(in_grid_L, 5)
     print(x0.shape)
     sde_3d = Kunita_Flow_SDE_3D_Eulerian_2Dmanifold(k_alpha=1.6, k_sigma=0.4, grid_num=10, grid_range=[-1,1], x0=x0[0])
@@ -54,15 +54,15 @@ if __name__ == "__main__":
 
     
     if not draw_unconditional:
-        model = CTShapeSFNO(x_feature_dim=3, l_list=(12, 6), lift_dim=8, latent_feature_dims=(8, 8), sampling="mw", activation="gelu")
+        model = CTShapeSFNO(x_feature_dim=3, l_list=(12, 6,3), lift_dim=16, latent_feature_dims=(2, 4,8), sampling="mw", activation="gelu")
         trainer = Trainer.NeuralOpTrainer(seed=get_random_int(), landmark_num=in_grid_L)
 
         checkpoint_path = project_root() + '/checkpoints/sphere_model_neuralOp_1D_brownian'
         retrain_checkpoint_path = project_root() + '/checkpoints/sphere_model_retrain_neuralOp_1D_brownian'
     
         if not os.path.exists(checkpoint_path):
-            train_state = trainer.train_state_init(model, lr=1e-3, model_kwargs={'x': jax.random.normal(jrandom.PRNGKey(get_random_int()), x0[0].shape), 't': jnp.array([0]),'object_fn': 'Heng'})
-            train_state, train_loss = trainer.train(train_state, sde_3d, sde_solver, sphere_data_generator_X0, train_steps, 16)
+            train_state = trainer.train_state_init(model, lr=1e-3, model_kwargs={'x': jax.random.normal(jrandom.PRNGKey(get_random_int()), x0[0].shape), 't': jnp.array([0]),'object_fn': 'infinite', 'x_L': in_grid_L})
+            train_state, train_loss = trainer.train(train_state, sde_3d, sde_solver, sphere_data_generator_X0, train_steps, 16, in_grid_L)
             plt.plot(train_loss)
             plt.show()
             # save the model
@@ -72,19 +72,20 @@ if __name__ == "__main__":
         else:
             restored_checkpoint = checkpoints.restore_checkpoint(checkpoint_path, target=None)
             params = restored_checkpoint["model"]["params"]
-            train_state = trainer.train_state_init(model, lr=1e-3, model_kwargs={'x': jax.random.normal(jrandom.PRNGKey(get_random_int()), x0[0].shape), 't': jnp.array([0]),'object_fn': 'Heng'}, retrain=True, ckpt_params=params)
+            train_state = trainer.train_state_init(model, lr=1e-3, model_kwargs={'x': jax.random.normal(jrandom.PRNGKey(get_random_int()), x0[0].shape), 't': jnp.array([0]),'object_fn': 'infinite', 'x_L': in_grid_L}, retrain=True, ckpt_params=params)
             if retrain:
-                train_state, train_loss = trainer.train(train_state, sde_3d, sde_solver, sphere_data_generator_X0, retrain_steps, 16)
+                train_state, train_loss = trainer.train(train_state, sde_3d, sde_solver, sphere_data_generator_X0, retrain_steps, 16, in_grid_L)
                 plt.plot(train_loss)
                 plt.show()
                 # save the model
                 config = {"dimension": x0[0].shape}
                 ckpt = {"model": train_state, "config": config}
                 checkpoints.save_checkpoint(retrain_checkpoint_path, ckpt, step=retrain_steps, overwrite=True, keep=1)
-        score_fn = lambda x, t, x0: train_state.apply_fn(train_state.params, x, t)
-        x0 = sphere_data_generator_X0.generate_data(12, 5)
-        xT = sphere_data_generator_XT.generate_data(12, 1)   
-        reverse_sde = Time_Reversed_SDE_2Dmanifold(sde_3d, score_fn, 1.0,0.02)
+        test_L = 24
+        score_fn = lambda x, t, x0: train_state.apply_fn(train_state.params, x, t, test_L)
+        x0 = sphere_data_generator_X0.generate_data(test_L, 5)
+        xT = sphere_data_generator_XT.generate_data(test_L, 1)   
+        reverse_sde = Time_Reversed_SDE_2Dmanifold_infinite(sde_3d, score_fn, 1.0,0.02)
         reverse_solver = EulerMaruyama.from_sde(reverse_sde, 0.02, 1.0, 3, condition_x=x0[0],debug_mode=False)
         condition_xs,_ = reverse_solver.solve(xT[0], rng_key=jrandom.PRNGKey(get_random_int()))
         condition_xs = condition_xs.reshape(condition_xs.shape[0], -1, 3)

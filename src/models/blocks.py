@@ -48,7 +48,7 @@ class SphericalSpectralTimeConv(nn.Module):
         # if self.path == "up":
         #     x = jax.image.resize(x, (self.L_freq_used, 2 * self.L_freq_used - 1, x.shape[2]), method="bilinear")
 
-        x_sht = jax.vmap(lambda x: s2fft.forward(x, x.shape[0], method="jax", sampling=self.sampling), in_axes=(2))(x)
+        x_sht = jax.vmap(lambda x: s2fft.forward(x, x.shape[0], method="jax", sampling=self.sampling,reality=True), in_axes=(2))(x)
         # x_sht: shape (in_channels, L_out, 2*L_out-1)
         x_sht = x_sht.transpose(1, 2, 0)
         x_sht = jax.image.resize(x_sht, (self.L_freq_used, 2 * self.L_freq_used - 1, x_sht.shape[2]), method="bilinear")
@@ -75,7 +75,7 @@ class SphericalSpectralTimeConv(nn.Module):
         # x_sht: shape (L_out, 2*L_out-1, out_channels), complex matrix
 
         padded_x_sht = zero_pad_flm(x_sht, self.L_out_spatial)
-        x_spatial_out = jax.vmap(lambda x: s2fft.inverse(x, self.L_out_spatial, method="jax", sampling=self.sampling), in_axes=(2))(padded_x_sht)
+        x_spatial_out = jax.vmap(lambda x: s2fft.inverse(x, self.L_out_spatial, method="jax", sampling=self.sampling,reality=True), in_axes=(2))(padded_x_sht)
         x_spatial_out = x_spatial_out.transpose(1,2,0)
         x_out = jnp.real(x_spatial_out)
         # x_out: shape (L_out, 2*L_out-1, out_channels)
@@ -105,7 +105,9 @@ class SpatialTimeConv(nn.Module):
         output:
         if the sampling is mw, shape (L_out, 2*L_out-1, out_channels)
         '''
-        in_channels = x.shape[2]
+
+
+        x = nn.Conv(features=self.out_channels, kernel_size=(1, 1), padding="VALID")(x)
 
 
 
@@ -113,7 +115,7 @@ class SpatialTimeConv(nn.Module):
 
         w_t, b_t = jnp.split(t, 2, axis=-1) # w_t: shape (time_emb_dim, out_channels), b_t: shape (out_channels,)
 
-        weight_shape = (in_channels, self.out_channels)
+        weight_shape = (self.out_channels, self.out_channels)
 
         weight = self.param("weight", nn.initializers.normal(stddev=0.02), weight_shape)
 
@@ -123,16 +125,16 @@ class SpatialTimeConv(nn.Module):
 
         if self.path == "down":
             # downsampling  
-            x = jax.image.resize(x, (self.L_out_spatial, 2 * self.L_out_spatial - 1, x.shape[2]), method="bilinear")
-            x = nn.Conv(features=self.out_channels, kernel_size=(3, 3), strides=(1, 1), padding="SAME")(x)
+            x = jax.image.resize(x, (self.L_out_spatial, 2 * self.L_out_spatial - 1, x.shape[2]), method="nearest")
+            x = nn.Conv(features=self.out_channels, kernel_size=(1, 1), padding="VALID")(x)
             # x: shape (L_out, 2*L_out-1, out_channels)
         elif self.path == "up":
             # upsampling
-            x = jax.image.resize(x, (self.L_out_spatial, 2 * self.L_out_spatial - 1, x.shape[2]), method="bilinear")
-            x = nn.Conv(features=self.out_channels, kernel_size=(3, 3), strides=(1, 1), padding="SAME")(x)
+            x = jax.image.resize(x, (self.L_out_spatial, 2 * self.L_out_spatial - 1, x.shape[2]), method="nearest")
+            x = nn.Conv(features=self.out_channels, kernel_size=(1, 1), padding="VALID")(x)
             # x: shape (L_out, 2*L_out-1, out_channels)
         else:
-            x = nn.Conv(features=self.out_channels, kernel_size=(3, 3), strides=(1, 1), padding="SAME")(x)
+            x = nn.Conv(features=self.out_channels, kernel_size=(1, 1), padding="VALID")(x)
             # x: shape (L_out, 2*L_out-1, out_channels)
         
         x = x + b_t
