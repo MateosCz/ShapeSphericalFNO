@@ -34,6 +34,36 @@ class Brownian_Motion_SDE_Flatten(SDE):
     def Sigma(self, x, t):
         return jnp.matmul(self.diffusion_fn(x, t), self.diffusion_fn(x, t).T)
     
+class Brownian_Motion_SDE_2Dmanifold(SDE):
+    """
+    Brownian motion SDE adapted for 2D manifolds.
+    X: S1 x S1 -> R^3
+    x dimension : (S1, S1, 3) (R^d landmark position, d=3)
+    t dimension : (num_particles, 1) (time)
+    """
+    def __init__(self, sigma: DTypeLike, x0: jnp.ndarray):
+        super().__init__()
+        self.sigma = sigma
+        # Store the shape for later use
+        self.manifold_shape = x0.shape[:-1]  # (S1, S1)
+        self.dim = x0.shape[-1]  # 3 for R^3
+        self.noise_size = jnp.prod(jnp.array(self.manifold_shape))
+    
+    def drift_fn(self, x, t):
+        return jnp.zeros_like(x)
+    
+    def diffusion_fn(self, x, t):
+        # Create identity tensor properly sized for the manifold
+        # For a 2D manifold mapping to R^3, each point gets its own identity matrix
+        eye = jnp.eye(self.dim)
+        # Expand to match the manifold dimensions
+        return jnp.ones(self.manifold_shape + (1,)) * eye * self.sigma
+    
+    def Sigma(self, x, t):
+        # Use einsum for proper tensor contraction, similar to the Kunita flow for 2D manifolds
+        sigma = self.diffusion_fn(x, t)
+        return jnp.einsum('ijk,klm->ijlm', sigma, sigma.T)
+
 class Kunita_Eulerian_SDE(SDE):
     def __init__(self, sigma: DTypeLike, kappa: DTypeLike, grid_dim: int, grid_num: int, grid_range: Tuple[float, float], x0: jnp.ndarray):
         self.sigma = sigma
@@ -189,6 +219,44 @@ class Time_Reversed_SDE_2Dmanifold(SDE):
         return self.original_sde.diffusion_fn(x, self.total_time - t + self.dt)
     def Sigma(self, x, t):
         return jnp.einsum('ijk,klm->ijlm', self.diffusion_fn(x, t), self.diffusion_fn(x, t).T)
+
+
+class Time_Reversed_SDE_2Dmanifold_infinite(SDE):
+    def __init__(self, original_sde: SDE, score_fn: Callable[[jnp.ndarray, float], jnp.ndarray], total_time: float, dt: float, noise_size: Optional[int] = None):
+        super().__init__()
+        self.original_sde = original_sde
+        self.score_fn = score_fn
+        self.total_time = total_time
+        self.dt = dt
+        self.epsilon = 1e-5
+        self.noise_size = noise_size if noise_size is not None else original_sde.noise_size
+    def compute_div_sigma(self, x: jnp.ndarray, t: float) -> jnp.ndarray:
+        def div_sigma_single(x_i):
+            def sigma_comp(i):
+                sigma_i = lambda x: self.original_sde.diffusion_fn(x, t)[i]
+                return jnp.trace(jax.jacfwd(sigma_i)(x_i))
+                # return jnp.trace(jax.jacrev(sigma_i)(x_i))
+            return jax.vmap(sigma_comp)(jnp.arange(x_i.shape[0]))
+        return jax.vmap(div_sigma_single)(x)
+
+
+
+    def drift_fn(self, x, t, x0):
+        jax.debug.print("score_fn: {0}", self.score_fn(x, self.total_time - t + self.dt, x0))
+        def drift_fn_impl(x,t, x0):
+            score_cond = self.score_fn(x, self.total_time - t + self.dt, x0)
+            drift = -self.original_sde.drift_fn(x, self.total_time - t + self.dt) + score_cond
+            # div_sigma = self.compute_div_sigma(x, self.total_time - t + self.dt)
+            # drift -= div_sigma
+            return drift
+ 
+        return drift_fn_impl(x, t, x0)
+    
+    def diffusion_fn(self, x, t):
+        return self.original_sde.diffusion_fn(x, self.total_time - t + self.dt)
+    def Sigma(self, x, t):
+        return jnp.einsum('ijk,klm->ijlm', self.diffusion_fn(x, t), self.diffusion_fn(x, t).T)
+
 
 class Kunita_Flow_SDE_3D_Eulerian(SDE):
     '''
