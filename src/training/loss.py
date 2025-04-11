@@ -73,13 +73,18 @@ def single_step_loss(params, state, x_prev, x, t, x0, Sigma, Sigma_prev, drift_p
             pred_score = jnp.reshape(pred_score, (pred_score.shape[0] * pred_score.shape[1], pred_score.shape[2]))
             drift_prev = jnp.reshape(drift_prev, (drift_prev.shape[0] * drift_prev.shape[1], drift_prev.shape[2]))
             Sigma_prev = jnp.reshape(Sigma_prev, (Sigma_prev.shape[0] * Sigma_prev.shape[1], Sigma_prev.shape[2] * Sigma_prev.shape[3]))
+            # Sigma_original = Sigma
             Sigma = jnp.reshape(Sigma, (Sigma.shape[0] * Sigma.shape[1], Sigma.shape[2] * Sigma.shape[3]))
+            # diff_Sigma = Sigma - Sigma_original
+            # largest_diff = jnp.max(jnp.abs(diff_Sigma))
+            # print("largest_diff", largest_diff)
+            
             # Add regularization as in notebook
             # reg_factor = jax.lax.cond(jnp.linalg.norm(Sigma_prev) > 1e-3, lambda: 1e-2, lambda: 1e-3)
             # Sigma_prev = Sigma_prev + reg_factor * jnp.eye(Sigma_prev.shape[0])
-            # Sigma_prev = Sigma_prev + 8e-2 * jnp.eye(Sigma_prev.shape[0])
+            Sigma_prev = Sigma_prev + 1e-3 * jnp.eye(Sigma_prev.shape[0])
             Sigma_prev_inv = jnp.linalg.solve(Sigma_prev, jnp.eye(Sigma_prev.shape[0]))
-            Sigma_prev_inv = jnp.linalg.lstsq(Sigma_prev, jnp.eye(Sigma_prev.shape[0]))[0]
+            # Sigma_prev_inv = jnp.linalg.lstsq(Sigma_prev, jnp.eye(Sigma_prev.shape[0]))[0]
             # Sigma_prev_inv = jnp.linalg.pinv(Sigma_prev,rcond=1e-6)
             # Sigma_prev_inv = jnp.linalg.inv(Sigma_prev)
             g_approx = -jnp.matmul(Sigma_prev_inv, (x - x_prev - dt * drift_prev))/dt
@@ -90,9 +95,9 @@ def single_step_loss(params, state, x_prev, x, t, x0, Sigma, Sigma_prev, drift_p
             return loss
         # Add regularization as in notebook
 
-        Sigma_prev = Sigma_prev + 1e-4 * jnp.eye(Sigma_prev.shape[0])
-        Sigma_prev_inv = jnp.linalg.lstsq(Sigma_prev, jnp.eye(Sigma_prev.shape[0]))[0]
-        # Sigma_prev_inv = jnp.linalg.solve(Sigma_prev, jnp.eye(Sigma_prev.shape[0]))
+        Sigma_prev = Sigma_prev + 1e-3 * jnp.eye(Sigma_prev.shape[0])
+        # Sigma_prev_inv = jnp.linalg.lstsq(Sigma_prev, jnp.eye(Sigma_prev.shape[0]))[0]
+        Sigma_prev_inv = jnp.linalg.solve(Sigma_prev, jnp.eye(Sigma_prev.shape[0]))
         # Sigma_prev_inv = jnp.linalg.pinv(Sigma_prev)
         g_approx = -jnp.matmul(Sigma_prev_inv, (x - x_prev - dt * drift_prev))/dt
         

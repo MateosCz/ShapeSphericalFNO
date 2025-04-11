@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 from flax import linen as nn
 import s2fft
-from src.utils.sht_helper import zero_pad_flm
+from src.utils.sht_helper import resize_flm, resize_spatial
 
 def get_activation(activation):
     if activation == "gelu":
@@ -17,6 +17,9 @@ def get_activation(activation):
         return nn.leaky_relu
     else:
         raise ValueError(f"Activation function {activation} not supported")
+def normal_initializer(input_co_dim: int):
+    return nn.initializers.normal(stddev=jnp.sqrt(1.0/(2.0*input_co_dim)))
+
 
 def get_sinusoidal_embedding(t, dim):
     embedding = jnp.zeros((t.shape[0], dim))
@@ -48,17 +51,39 @@ class SphericalSpectralTimeConv(nn.Module):
         # if self.path == "up":
         #     x = jax.image.resize(x, (self.L_freq_used, 2 * self.L_freq_used - 1, x.shape[2]), method="bilinear")
 
-        x_sht = jax.vmap(lambda x: s2fft.forward(x, x.shape[0], method="jax", sampling=self.sampling,reality=True), in_axes=(2))(x)
+        x_sht = jax.vmap(lambda x: s2fft.forward(x, x.shape[0], method="jax", spin=0,sampling=self.sampling,reality=True), in_axes=(2))(x)
         # x_sht: shape (in_channels, L_out, 2*L_out-1)
         x_sht = x_sht.transpose(1, 2, 0)
-        x_sht = jax.image.resize(x_sht, (self.L_freq_used, 2 * self.L_freq_used - 1, x_sht.shape[2]), method="bilinear")
+        x_sht = resize_flm(x_sht, self.L_freq_used)
+        
+
         
         # x_sht: shape (L_out, 2*L_out-1, in_channels), complex matrix
 
-        weight_shape = (self.L_freq_used, self.in_channels, self.out_channels) # weight shared within one L
-        weight_real = self.param("weight_real", nn.initializers.normal(stddev=0.02), weight_shape)
-        weight_imag = self.param("weight_imag", nn.initializers.normal(stddev=0.02), weight_shape)
+        # weight_shape = (self.L_freq_used, self.in_channels, self.out_channels) # weight shared within one L
+        # weight_real = self.param("weight_real", normal_initializer(self.in_channels), weight_shape)
+        # weight_imag = self.param("weight_imag", normal_initializer(self.in_channels), weight_shape)
 
+        # weight = weight_real + 1j * weight_imag
+
+        # 定义频率依赖的系数函数
+        L_max = self.L_freq_used
+        modes = jnp.arange(L_max)
+        # 多项式基函数
+        num_basis = 4  # 控制复杂度
+        polynomial_basis = jnp.array([modes**i for i in range(num_basis)])  # (num_basis, L_max)
+
+        # 基函数参数
+        basis_weights_real = self.param("basis_weights_real", 
+                                    normal_initializer(self.in_channels), 
+                                    (num_basis, self.in_channels, self.out_channels))
+        basis_weights_imag = self.param("basis_weights_imag", 
+                                    normal_initializer(self.in_channels),
+                                    (num_basis, self.in_channels, self.out_channels))
+
+        # 生成频域滤波器参数
+        weight_real = jnp.einsum("bl,bio->lio", polynomial_basis, basis_weights_real)
+        weight_imag = jnp.einsum("bl,bio->lio", polynomial_basis, basis_weights_imag)
         weight = weight_real + 1j * weight_imag
         # weight: shape (L_out, in_channels, out_channels), complex matrix
         
@@ -74,8 +99,8 @@ class SphericalSpectralTimeConv(nn.Module):
         x_sht = jnp.einsum("lmi,lio->lmo", x_sht, weight)
         # x_sht: shape (L_out, 2*L_out-1, out_channels), complex matrix
 
-        padded_x_sht = zero_pad_flm(x_sht, self.L_out_spatial)
-        x_spatial_out = jax.vmap(lambda x: s2fft.inverse(x, self.L_out_spatial, method="jax", sampling=self.sampling,reality=True), in_axes=(2))(padded_x_sht)
+        padded_x_sht = resize_flm(x_sht, self.L_out_spatial)
+        x_spatial_out = jax.vmap(lambda x: s2fft.inverse(x, self.L_out_spatial, method="jax", spin=0, sampling=self.sampling,reality=True), in_axes=(2))(padded_x_sht)
         x_spatial_out = x_spatial_out.transpose(1,2,0)
         x_out = jnp.real(x_spatial_out)
         # x_out: shape (L_out, 2*L_out-1, out_channels)
@@ -117,7 +142,7 @@ class SpatialTimeConv(nn.Module):
 
         weight_shape = (self.out_channels, self.out_channels)
 
-        weight = self.param("weight", nn.initializers.normal(stddev=0.02), weight_shape)
+        weight = self.param("weight", nn.initializers.normal(), weight_shape)
 
         weight = jnp.einsum("o,io->io", w_t, weight)
 
@@ -125,12 +150,20 @@ class SpatialTimeConv(nn.Module):
 
         if self.path == "down":
             # downsampling  
-            x = jax.image.resize(x, (self.L_out_spatial, 2 * self.L_out_spatial - 1, x.shape[2]), method="nearest")
+            x = jax.vmap(lambda x: s2fft.forward(x, x.shape[0], method="jax", spin=0,sampling=self.sampling,reality=True), in_axes=(2))(x)
+            x = jnp.transpose(x,(1,2,0))
+            x = resize_flm(x, self.L_out_spatial)
+            x = jax.vmap(lambda x: s2fft.inverse(x, self.L_out_spatial, method="jax", spin=0, sampling=self.sampling,reality=True), in_axes=(2))(x)
+            x = jnp.transpose(x,(1,2,0))
             x = nn.Conv(features=self.out_channels, kernel_size=(1, 1), padding="VALID")(x)
             # x: shape (L_out, 2*L_out-1, out_channels)
         elif self.path == "up":
             # upsampling
-            x = jax.image.resize(x, (self.L_out_spatial, 2 * self.L_out_spatial - 1, x.shape[2]), method="nearest")
+            x = jax.vmap(lambda x: s2fft.forward(x, x.shape[0], method="jax", spin=0,sampling=self.sampling,reality=True), in_axes=(2))(x)
+            x = jnp.transpose(x,(1,2,0))
+            x = resize_flm(x, self.L_out_spatial)
+            x = jax.vmap(lambda x: s2fft.inverse(x, self.L_out_spatial, method="jax", spin=0, sampling=self.sampling,reality=True), in_axes=(2))(x)
+            x = jnp.transpose(x,(1,2,0))
             x = nn.Conv(features=self.out_channels, kernel_size=(1, 1), padding="VALID")(x)
             # x: shape (L_out, 2*L_out-1, out_channels)
         else:
@@ -160,10 +193,11 @@ class CTSFNOBlock(nn.Module):
         x_spatial = SpatialTimeConv(out_channels=self.out_channels, L_out_spatial=self.L_out_spatial, path=self.path, sampling=self.sampling)(x, t_emb)
 
         x = x_spectral + x_spatial
+        # x = x_spectral
 
         x = get_activation(self.activation)(x)
 
-        x = nn.LayerNorm()(x)
+        # x = nn.InstanceNorm()(x)
 
         return x
 

@@ -90,6 +90,7 @@ class CTShapeSFNO(nn.Module):
                         sampling=self.sampling, 
                         activation=self.activation)(x, time_emb)
         x = nn.Conv(features=self.x_feature_dim, kernel_size=(1, 1), padding="VALID")(x)
+        # x = nn.Dense(features=self.x_feature_dim)(x)
         if flatten:
             x = jnp.reshape(x, (x.shape[0] * x.shape[1], x.shape[2]))
         return x
