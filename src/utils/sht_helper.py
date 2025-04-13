@@ -81,3 +81,42 @@ def resize_spatial(f, target_L):
     # 执行填充操作
     return resized_f.at[start_lat:end_lat, 
                          start_lon:end_lon].set(f)
+
+def Legendre_Polynomial(x, L):
+    """
+    计算Legendre多项式
+    
+    Args:
+        x: 输入值
+        L: 多项式阶数
+        
+    Returns:
+        计算结果
+    """
+
+    if L == 0:
+        return jnp.ones_like(x)
+    elif L == 1:
+        return x
+    else:
+        return ((2*L-1)*x*Legendre_Polynomial(x, L-1) - (L-1)*Legendre_Polynomial(x, L-2)) / L
+
+def Legendre_Polynomial_Derivative(x, L):
+    """
+    计算Legendre多项式的导数
+    
+    Args:
+        x: 输入值
+        L: 多项式阶数
+        
+    Returns:
+        计算结果
+    """
+
+    if L == 0:
+        return jnp.zeros_like(x)
+    elif L == 1:
+        return jnp.ones_like(x)
+    else:
+        return (L/x)*Legendre_Polynomial(x, L-1) - ((L-1)/x)*Legendre_Polynomial(x, L-2)
+

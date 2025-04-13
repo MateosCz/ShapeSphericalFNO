@@ -36,16 +36,16 @@ def project_root():
 
 if __name__ == "__main__":
     jax.clear_caches()
-    train_steps = 3000
+    train_steps = 5000
     retrain = False
     retrain_steps = 1500
     draw_unconditional = False
-    in_grid_L = 10
-    sphere_data_generator_XT = S2ManifoldDataGenerator(manifold_type="sphere", seed=get_random_int(), radius=0.9, flatten=True)
+    in_grid_L = 30
+    sphere_data_generator_XT = S2ManifoldDataGenerator(manifold_type="fib_sphere", seed=get_random_int(), radius=0.8, flatten=True)
 
     xT = sphere_data_generator_XT.generate_data(in_grid_L, 1)
     print(xT.shape)
-    sphere_data_generator_X0 = S2ManifoldDataGenerator(manifold_type="sphere", seed=get_random_int(), radius=0.7, flatten=True)
+    sphere_data_generator_X0 = S2ManifoldDataGenerator(manifold_type="fib_sphere", seed=get_random_int(), radius=0.4, flatten=True)
     x0 = sphere_data_generator_X0.generate_data(in_grid_L, 5)
     print(x0.shape)
     sde_3d = Brownian_Motion_SDE_Flatten(dim=3, sigma=0.1, x0=x0[0])
@@ -55,7 +55,7 @@ if __name__ == "__main__":
 
     
     if not draw_unconditional:
-        model = CTShapeSFNO(x_feature_dim=3, l_list=(10,5,2), lift_dim=16, latent_feature_dims=(1, 2,4), sampling="mw", activation="gelu")
+        model = CTShapeSFNO(x_feature_dim=3, l_list=(10,5), lift_dim=8, latent_feature_dims=(1, 2), sampling="mw", activation="gelu")
         trainer = Trainer.NeuralOpTrainer(seed=get_random_int(), landmark_num=in_grid_L)
 
         checkpoint_path = project_root() + '/checkpoints/sphere_model_flatten'
@@ -88,6 +88,8 @@ if __name__ == "__main__":
         xT = sphere_data_generator_XT.generate_data(test_in_grid_L, 1)   
         sde_3d = Brownian_Motion_SDE_Flatten(dim=3, sigma=0.1, x0=x0[0])
         reverse_sde = Time_Reversed_SDE(sde_3d, score_fn, 1.0,0.02)
+        # reverse_sde = Time_Reversed_SDE_infinite(sde_3d, score_fn, 1.0,0.02)
+
         reverse_solver = EulerMaruyama.from_sde(reverse_sde, 0.02, 1.0, 3, condition_x=x0[0],debug_mode=False)
         condition_xs,_ = reverse_solver.solve(xT[0], rng_key=jrandom.PRNGKey(get_random_int()))
         # condition_xs = xs
