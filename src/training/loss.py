@@ -48,7 +48,7 @@ def ssm_dsm_loss(params, state, xs, times, x0, Sigmas, drifts, object_fn='Heng',
     elif object_fn == 'Novel':
         loss = jnp.sum(loss)/xs.shape[0]
         loss = jnp.sum(loss)/2
-    elif object_fn == 'infinite':
+    elif object_fn == 'Yang':
         loss = jnp.mean(loss, axis=1)
         loss = jnp.sum(loss) * dt/2
 
@@ -110,7 +110,7 @@ def single_step_loss(params, state, x_prev, x, t, x0, Sigma, Sigma_prev, drift_p
         approx_stable = (x - x_prev - dt * drift_prev)
         loss = pred_score.T @ (Sigma_prev * dt) @ pred_score + 2 * pred_score.T @ approx_stable
         loss = loss * dt 
-    elif object_fn == 'infinite':
+    elif object_fn == 'Yang':
         if with_x0:
             pred_score = state.apply_fn(params, x, t, x0, x_L)
         else:

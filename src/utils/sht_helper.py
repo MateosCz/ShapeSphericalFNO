@@ -120,3 +120,20 @@ def Legendre_Polynomial_Derivative(x, L):
     else:
         return (L/x)*Legendre_Polynomial(x, L-1) - ((L-1)/x)*Legendre_Polynomial(x, L-2)
 
+def infer_L_from_shape(x, sampling):
+    if sampling == "dh":
+        return x.shape[0] // 2
+    else:  # mw, mwss
+        return x.shape[0]
+
+def get_phi_dim(L, sampling):
+    return 2 * L-1 if sampling == "dh" else 2 * L - 1
+
+def pad_inverse_output(x, sampling):
+    # for the dh sampling, the output of the inverse is (2L, 2L-1, C), pad the last row to (2L, 2L, C)
+    if sampling != "dh":
+        return x
+    # x.shape = (2L, 2L-1, C)
+    last_col = x[:, -1:, :]  # copy the last column
+    x_padded = jnp.concatenate([x, last_col], axis=1)
+    return x_padded

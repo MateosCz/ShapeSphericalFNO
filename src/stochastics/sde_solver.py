@@ -27,7 +27,8 @@ class EulerMaruyama(SDESolver):
                  noise_size: int,
                  dim: int,
                  condition_x: Optional[jnp.ndarray] = None,
-                 debug_mode: bool = False):
+                 debug_mode: bool = False,
+                 reversed: bool = False):
         self.drift_fn = drift_fn
         self.diffusion_fn = diffusion_fn
         self.dt = dt
@@ -37,6 +38,7 @@ class EulerMaruyama(SDESolver):
         self.condition_x = condition_x
         self.debug_mode = debug_mode
         self.dim = dim
+        self.reversed = reversed
     def solve(self, x0: jnp.ndarray, rng_key: jnp.ndarray) -> jnp.ndarray:
         def step(carry: Tuple[jnp.ndarray, jnp.ndarray], t: float):
             x, key = carry
@@ -76,5 +78,5 @@ class EulerMaruyama(SDESolver):
 
 
     @staticmethod
-    def from_sde(sde, dt: float, total_time: float, dim: int, condition_x: Optional[jnp.ndarray] = None, debug_mode: bool = False) -> 'EulerMaruyama':
-        return EulerMaruyama(sde.drift_fn, sde.diffusion_fn, dt, total_time, sde.noise_size, dim,  condition_x, debug_mode)
+    def from_sde(sde, dt: float, total_time: float, dim: int, condition_x: Optional[jnp.ndarray] = None, debug_mode: bool = False, reversed: bool = False) -> 'EulerMaruyama':
+        return EulerMaruyama(sde.drift_fn, sde.diffusion_fn, dt, total_time, sde.noise_size, dim,  condition_x, debug_mode, reversed)

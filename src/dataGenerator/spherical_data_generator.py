@@ -25,7 +25,7 @@ class S2ManifoldDataGenerator(DataGenerator):
     
     def __init__(self, sampling: str = "mw", manifold_type: str = "sphere", 
                  radius: float = 1.0, height: float = 2.0, minor_radius: float = 0.5, 
-                 major_radius: float = 2.0, width: float = 0.5, center: jnp.ndarray = jnp.array([0.0, 0.0, 0.0]), flatten: bool = False, seed=0):
+                 major_radius: float = 2.0, width: float = 0.5, center: jnp.ndarray = jnp.array([0.0, 0.0, 0.0]), flatten: bool = False, seed=0, randomization: bool = False):
         """
         Initialize the data generator.
         
@@ -42,6 +42,7 @@ class S2ManifoldDataGenerator(DataGenerator):
         self.width = width
         self.center = center
         self.flatten = flatten
+        self.randomization = randomization
     def generate_sampling_grid(self, L, sampling='mw'):
         """
         Generate angular sampling grid based on the requested scheme.
@@ -56,29 +57,45 @@ class S2ManifoldDataGenerator(DataGenerator):
             ntheta: Number of theta samples
             nphi: Number of phi samples
         """
+        if self.randomization:
+            self.key, key = jrandom.split(self.key)
+        
         if sampling == 'mw':
             # McEwen & Wiaux sampling
             ntheta = L
             nphi = 2*L-1
             
-            theta = jnp.linspace(0, jnp.pi, ntheta, endpoint=True)
-            phi = jnp.linspace(0, 2*jnp.pi, nphi, endpoint=False)
+            if self.randomization:
+                theta = jrandom.uniform(key, (ntheta,), minval=0, maxval=jnp.pi)
+                phi = jrandom.uniform(key, (nphi,), minval=0, maxval=2*jnp.pi)
+            else:
+                theta = jnp.linspace(0, jnp.pi, ntheta, endpoint=True)
+                phi = jnp.linspace(0, 2*jnp.pi, nphi, endpoint=False)
             
         elif sampling == 'mwss':
             # McEwen & Wiaux Symmetric Sampling
             ntheta = L + 1
             nphi = 2*L
-            
-            theta = jnp.linspace(0, jnp.pi, ntheta, endpoint=True)
-            phi = jnp.linspace(0, 2*jnp.pi, nphi, endpoint=False)
+            if self.randomization:
+                theta = jrandom.uniform(key, (ntheta,), minval=0, maxval=jnp.pi)
+                phi = jrandom.uniform(key, (nphi,), minval=0, maxval=2*jnp.pi)
+            else:
+                theta = jnp.linspace(0, jnp.pi, ntheta, endpoint=True)
+                phi = jnp.linspace(0, 2*jnp.pi, nphi, endpoint=False)
             
         elif sampling == 'dh':
             # Driscoll & Healy sampling
             ntheta = 2*L
             nphi = 2*L
-            
-            theta = jnp.linspace(0, jnp.pi, ntheta, endpoint=False) + jnp.pi/(2*ntheta)
-            phi = jnp.linspace(0, 2*jnp.pi, nphi, endpoint=False)
+            if self.randomization:
+                theta = jrandom.uniform(key, (ntheta,), minval=0, maxval=jnp.pi) + jnp.pi/(2 *ntheta)
+                phi = jrandom.uniform(key, (nphi,), minval=0, maxval=2*jnp.pi)
+            else:
+                theta = jnp.linspace(0, jnp.pi, ntheta, endpoint=False) + jnp.pi/(2 *ntheta)
+                phi = jnp.linspace(0, 2*jnp.pi, nphi, endpoint=False)
+            # drop the last phi
+            phi = phi[:-1]
+            nphi = nphi - 1
             
         else:
             raise ValueError(f"Unsupported sampling scheme: {sampling}. Use 'mw', 'mwss', or 'dh'")
@@ -267,6 +284,25 @@ class S2ManifoldDataGenerator(DataGenerator):
         
         return points
     
+    def _generate_data_single(self, L, sampling, key):
+        theta_grid, phi_grid, ntheta, nphi = self.generate_sampling_grid(L, sampling)
+        if self.manifold_type == 'sphere':
+            points = self.sphere(theta_grid, phi_grid, self.radius, self.center)
+        elif self.manifold_type == 'cylinder':
+            points = self.cylinder(theta_grid, phi_grid, self.radius, self.height, self.center)
+        elif self.manifold_type == 'torus':
+            points = self.torus(theta_grid, phi_grid, self.major_radius, self.minor_radius, self.center)
+        elif self.manifold_type == 'mobius':
+            points = self.mobius_strip(theta_grid, phi_grid, self.radius, self.width, self.center)
+        elif self.manifold_type == 'fib_sphere':
+            points = self.fib_sphere(theta_grid, phi_grid, self.radius, self.center)
+        else:
+            raise ValueError(f"Unsupported manifold type: {self.manifold_type}")
+            
+        return points
+
+        
+    
     def generate_data(self, L, batch_size=1, **kwargs):
         """
         Generate data on the specified manifold with s2fft-compatible sampling.
@@ -286,27 +322,37 @@ class S2ManifoldDataGenerator(DataGenerator):
             points: Tensor of shape (batch_size, ntheta, nphi, 3) with 3D coordinates
         """
         # Generate appropriate sampling grid
-        theta_grid, phi_grid, ntheta, nphi = self.generate_sampling_grid(L, self.sampling)
-        
+        # theta_grid, phi_grid, ntheta, nphi = self.generate_sampling_grid(L, self.sampling)
+
+
         # Generate points on the requested manifold
-        if self.manifold_type == 'sphere':
-            points = self.sphere(theta_grid, phi_grid, self.radius, self.center)
-        elif self.manifold_type == 'cylinder':
-            points = self.cylinder(theta_grid, phi_grid, self.radius, self.height, self.center)
-        elif self.manifold_type == 'torus':
-            points = self.torus(theta_grid, phi_grid, self.major_radius, self.minor_radius, self.center)
-        elif self.manifold_type == 'mobius':
-            points = self.mobius_strip(theta_grid, phi_grid, self.radius, self.width, self.center)
-        elif self.manifold_type == 'fib_sphere':
-            points = self.fib_sphere(theta_grid, phi_grid, self.radius, self.center)
-        else:
-            raise ValueError(f"Unsupported manifold type: {self.manifold_type}")
-        
-        # Add batch dimension
+        # if self.manifold_type == 'sphere':
+        #     points = self.sphere(theta_grid, phi_grid, self.radius, self.center)
+        # elif self.manifold_type == 'cylinder':
+        #     points = self.cylinder(theta_grid, phi_grid, self.radius, self.height, self.center)
+        # elif self.manifold_type == 'torus':
+        #     points = self.torus(theta_grid, phi_grid, self.major_radius, self.minor_radius, self.center)
+        # elif self.manifold_type == 'mobius':
+        #     points = self.mobius_strip(theta_grid, phi_grid, self.radius, self.width, self.center)
+        # elif self.manifold_type == 'fib_sphere':
+        #     points = self.fib_sphere(theta_grid, phi_grid, self.radius, self.center)
+        # else:
+        #     raise ValueError(f"Unsupported manifold type: {self.manifold_type}")
         if batch_size > 1:
-            points = jnp.tile(points[None, ...], (batch_size, 1, 1, 1))
+            self.key, key_new = jrandom.split(self.key)
+            key_new = jrandom.split(key_new, batch_size)
+            points = jax.vmap(self._generate_data_single, in_axes=(None, None, 0))(L, self.sampling, key_new)
+            # print(points.shape)
         else:
+            points = self._generate_data_single(L, self.sampling, self.key)
             points = points[None, ...]
+            # print(points.shape)
+        
+        # # Add batch dimension
+        # if batch_size > 1:
+        #     points = jnp.tile(points[None, ...], (batch_size, 1, 1, 1))
+        # else:
+        #     points = points[None, ...]
         if self.flatten:
             points = jnp.reshape(points, (points.shape[0], points.shape[1] * points.shape[2], points.shape[3]))
             

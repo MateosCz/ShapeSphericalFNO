@@ -150,10 +150,11 @@ class NeuralOpTrainer(Trainer):
             total_time=solver.total_time,
             dim=x0.shape[-1],
         )
+        zero_x0 = jnp.zeros_like(x0)
         
         # Solve SDE for each sample with provided keys
-        training_data, diffusion_history = jax.vmap(solver.solve, in_axes=(0, 0))(x0, solve_keys)
-        
+        # training_data, diffusion_history = jax.vmap(solver.solve, in_axes=(0, 0))(x0, solve_keys)
+        training_data, diffusion_history = jax.vmap(solver.solve, in_axes=(0, 0))(zero_x0, solve_keys)
         # Process data
         num_timesteps = training_data.shape[1]
         times = jnp.linspace(0, solver.total_time, num_timesteps)
