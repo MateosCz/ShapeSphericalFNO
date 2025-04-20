@@ -52,7 +52,7 @@ class SphericalSpectralTimeConv(nn.Module):
         #     x = jax.image.resize(x, (self.L_freq_used, 2 * self.L_freq_used - 1, x.shape[2]), method="bilinear")
         # forward_L detection
         L_in = infer_L_from_shape(x, self.sampling)
-        x_sht = jax.vmap(lambda x: s2fft.forward(x, L_in, method="jax", spin=1,sampling=self.sampling,reality=True), in_axes=(2))(x)
+        x_sht = jax.vmap(lambda x: s2fft.forward(x, L_in, method="jax", spin=0,sampling=self.sampling,reality=True), in_axes=(2))(x)
         # x_sht: shape (in_channels, L_out, 2*L_out-1)
         x_sht = x_sht.transpose(1, 2, 0)
         x_sht = resize_flm(x_sht, self.L_freq_used)
@@ -84,14 +84,14 @@ class SphericalSpectralTimeConv(nn.Module):
         x_sht = x_sht + conv_x_sht
 
         padded_x_sht = resize_flm(x_sht, self.L_out_spatial)
-        x_spatial_out = jax.vmap(lambda x: s2fft.inverse(x, self.L_out_spatial, method="jax", spin=1, sampling=self.sampling,reality=True), in_axes=(2))(padded_x_sht)
+        x_spatial_out = jax.vmap(lambda x: s2fft.inverse(x, self.L_out_spatial, method="jax", spin=0, sampling=self.sampling,reality=True), in_axes=(2))(padded_x_sht)
         x_spatial_out = x_spatial_out.transpose(1,2,0)
         # x_spatial_out = pad_inverse_output(x_spatial_out, self.sampling)
         x_spatial_out = jnp.real(x_spatial_out)
         x_spatial_out /= (jnp.linalg.norm(x_spatial_out, axis=-1, keepdims=True) + 1e-6)
         # x_out = jnp.real(x_spatial_out)
         # x_out: shape (L_out, 2*L_out-1, out_channels
-        print("x_spatial_out.shape", x_spatial_out.shape)
+        # print("x_spatial_out.shape", x_spatial_out.shape)
 
 
         return x_spatial_out
@@ -120,7 +120,7 @@ class SpatialTimeConv(nn.Module):
         if the sampling is mw, shape (L_out, 2*L_out-1, out_channels)
         '''
 
-
+        L_in = infer_L_from_shape(x, self.sampling)
         x = nn.Conv(features=self.out_channels, kernel_size=(1, 1), padding="VALID")(x)
 
 
@@ -138,23 +138,23 @@ class SpatialTimeConv(nn.Module):
         x = jnp.einsum("lmi,io->lmo", x, weight)
 
         # forward_L detection
-        L_in = infer_L_from_shape(x, self.sampling)
+        
 
         if self.path == "down":
             # downsampling  
-            x = jax.vmap(lambda x: s2fft.forward(x, L_in, method="jax", spin=1,sampling=self.sampling,reality=True), in_axes=(2))(x)
+            x = jax.vmap(lambda x: s2fft.forward(x, L_in, method="jax", spin=0,sampling=self.sampling,reality=True), in_axes=(2))(x)
             x = jnp.transpose(x,(1,2,0))
             x = resize_flm(x, self.L_out_spatial)
-            x = jax.vmap(lambda x: s2fft.inverse(x, self.L_out_spatial, method="jax", spin=1, sampling=self.sampling,reality=True), in_axes=(2))(x)
+            x = jax.vmap(lambda x: s2fft.inverse(x, self.L_out_spatial, method="jax", spin=0, sampling=self.sampling,reality=True), in_axes=(2))(x)
             x = jnp.transpose(x,(1,2,0))
             x = nn.Conv(features=self.out_channels, kernel_size=(1, 1), padding="VALID")(x)
             # x: shape (L_out, 2*L_out-1, out_channels)
         elif self.path == "up":
             # upsampling
-            x = jax.vmap(lambda x: s2fft.forward(x, L_in, method="jax", spin=1,sampling=self.sampling,reality=True), in_axes=(2))(x)
+            x = jax.vmap(lambda x: s2fft.forward(x, L_in, method="jax", spin=0,sampling=self.sampling,reality=True), in_axes=(2))(x)
             x = jnp.transpose(x,(1,2,0))
             x = resize_flm(x, self.L_out_spatial)
-            x = jax.vmap(lambda x: s2fft.inverse(x, self.L_out_spatial, method="jax", spin=1, sampling=self.sampling,reality=True), in_axes=(2))(x)
+            x = jax.vmap(lambda x: s2fft.inverse(x, self.L_out_spatial, method="jax", spin=0, sampling=self.sampling,reality=True), in_axes=(2))(x)
             x = jnp.transpose(x,(1,2,0))
             x = nn.Conv(features=self.out_channels, kernel_size=(1, 1), padding="VALID")(x)
             # x: shape (L_out, 2*L_out-1, out_channels)
@@ -182,7 +182,8 @@ class CTSFNOBlock(nn.Module):
     def __call__(self, x, t_emb):
         x_in = x
         x_spectral = SphericalSpectralTimeConv(in_channels=self.in_channels, out_channels=self.out_channels, L_freq_used=self.L_freq_used, L_out_spatial=self.L_out_spatial, path=self.path, sampling=self.sampling)(x, t_emb)
-
+        # time_embed_dim = t_emb.shape[0]
+        # x_spectral = SpectralTimeModulatedSFNO(in_channels=self.in_channels, out_channels=self.out_channels, L_freq_used=self.L_freq_used, time_embed_dim=time_embed_dim, L_out_spatial=self.L_out_spatial, sampling=self.sampling)(x, t_emb)
         x_spatial = SpatialTimeConv(out_channels=self.out_channels, L_out_spatial=self.L_out_spatial, path=self.path, sampling=self.sampling)(x, t_emb)
 
         x = x_spectral + x_spatial
@@ -218,3 +219,63 @@ class Encoder_MLP(nn.Module):
         x = nn.Dense(features=self.out_channels)(x)
         x = get_activation(self.activation)(x)
         return x
+class SpectralTimeModulatedSFNO(nn.Module):
+    in_channels: int
+    out_channels: int
+    L_freq_used: int
+    time_embed_dim: int
+    L_out_spatial: int
+    sampling: str = "mw"
+
+    @nn.compact
+    def __call__(self, x, t_emb):
+        L = x.shape[0]
+        phi_dim = x.shape[1]
+
+        x_sht = jax.vmap(
+            lambda c: s2fft.forward(x[..., c], L, spin=0, sampling=self.sampling, method="jax"),
+            in_axes=0
+        )(jnp.arange(self.in_channels))
+        x_sht = jnp.transpose(x_sht, (1, 2, 0))  # (L, M, Cin)
+
+        x_sht = resize_flm(x_sht, self.L_freq_used)
+
+        A_real = self.param("A_real", nn.initializers.normal(0.01), (self.L_freq_used, self.time_embed_dim))
+        A_imag = self.param("A_imag", nn.initializers.normal(0.01), (self.L_freq_used, self.time_embed_dim))
+
+        # Ensure t_emb shape is (1, C) or (C,) for broadcasting
+        if t_emb.ndim == 1:
+            t_emb = t_emb[None, :]  # (1, C)
+
+        phi_real = jnp.einsum('lc,bc->bl', A_real, t_emb)  # (1, L)
+        phi_imag = jnp.einsum('lc,bc->bl', A_imag, t_emb)  # (1, L)
+        phi_complex = phi_real + 1j * phi_imag             # (1, L)
+        phi_complex = phi_complex[0]  # remove batch dim → (L,)
+
+        R_real = self.param("R_real", nn.initializers.normal(0.01), (self.L_freq_used, self.out_channels, self.in_channels))
+        R_imag = self.param("R_imag", nn.initializers.normal(0.01), (self.L_freq_used, self.out_channels, self.in_channels))
+
+        def per_freq_op(x_lm, phi):
+            def per_l_op(args):
+                x_l, Rr, Ri, p = args
+                xr, xi = x_l.real, x_l.imag
+                real_tmp = jnp.dot(Rr, xr) - jnp.dot(Ri, xi)
+                imag_tmp = jnp.dot(Rr, xi) + jnp.dot(Ri, xr)
+                return real_tmp * p.real - imag_tmp * p.imag + 1j * (real_tmp * p.imag + imag_tmp * p.real)
+
+            return jax.vmap(per_l_op)((x_lm, R_real, R_imag, phi))
+
+        outputs = []
+        for m in range(x_sht.shape[1]):
+            out_l = per_freq_op(x_sht[:, m, :], phi_complex)  # (L, Cout)
+            outputs.append(out_l[:, None, :])
+
+        x_sht_out = jnp.concatenate(outputs, axis=1)  # (L_out, M, Cout)
+        x_sht_out = resize_flm(x_sht_out, self.L_out_spatial)
+
+        x_out = jax.vmap(
+            lambda c: s2fft.inverse(x_sht_out[..., c], self.L_out_spatial, spin=0, sampling=self.sampling, method="jax"),
+            in_axes=0
+        )(jnp.arange(self.out_channels))
+        x_out = jnp.transpose(x_out, (1, 2, 0))  # (L_out, M_out, Cout)
+        return jnp.real(x_out)

@@ -115,10 +115,22 @@ def single_step_loss(params, state, x_prev, x, t, x0, Sigma, Sigma_prev, drift_p
             pred_score = state.apply_fn(params, x, t, x0, x_L)
         else:
             pred_score = state.apply_fn(params, x, t, x_L)
-
+        
+        # add penalty on polar parts
+        theta_grid = jnp.arccos(x[..., 2])
+        polar_mask = (theta_grid < 0.2) | (theta_grid > jnp.pi - 0.2)
+        polar_penalty = jnp.mean(jnp.linalg.norm(pred_score, axis=-1) * polar_mask)
         b = -(x - x_prev - dt * drift_prev) / dt
-        loss = jnp.linalg.norm(pred_score - b) ** 2
-            
+        loss_main = jnp.linalg.norm(pred_score - b) ** 2 + 5e-3 * polar_penalty
+        terminal_mask = jnp.isclose(t, 1.0, atol=1e-2)
+        attractor = (x-x0) / 1e-2
+        penalty = jnp.mean(jnp.linalg.norm(pred_score + attractor, axis=-1) ** 2) * terminal_mask
+        loss = jax.lax.cond(
+            terminal_mask,
+            lambda _: loss_main + 1.0 * penalty,
+            lambda _: loss_main,
+            operand=None
+        )
             
     return loss
 # vmap over batch size, one batch's loss is mean at each timestep's loss

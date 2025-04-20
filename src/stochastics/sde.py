@@ -34,35 +34,37 @@ class Brownian_Motion_SDE_Flatten(SDE):
     def Sigma(self, x, t):
         return jnp.matmul(self.diffusion_fn(x, t), self.diffusion_fn(x, t).T)
     
-class Brownian_Motion_SDE_2Dmanifold(SDE):
+class Brownian_Motion_SDE_2D_Manifold(SDE):
     """
-    Brownian motion SDE adapted for 2D manifolds.
+    Brownian motion on a 2D manifold embedded in R^3
     X: S1 x S1 -> R^3
-    x dimension : (S1, S1, 3) (R^d landmark position, d=3)
-    t dimension : (num_particles, 1) (time)
+    x shape: (H, W, 3) (e.g. L x (2L-1) x 3 for spherical data)
     """
     def __init__(self, sigma: DTypeLike, x0: jnp.ndarray):
         super().__init__()
         self.sigma = sigma
-        # Store the shape for later use
-        self.manifold_shape = x0.shape[:-1]  # (S1, S1)
-        self.dim = x0.shape[-1]  # 3 for R^3
-        self.noise_size = jnp.prod(jnp.array(self.manifold_shape))
-    
+        self.noise_size = x0.shape[0] * x0.shape[1]  # flattened number of points
+
     def drift_fn(self, x, t):
         return jnp.zeros_like(x)
-    
+
     def diffusion_fn(self, x, t):
-        # Create identity tensor properly sized for the manifold
-        # For a 2D manifold mapping to R^3, each point gets its own identity matrix
-        eye = jnp.eye(self.dim)
-        # Expand to match the manifold dimensions
-        return jnp.ones(self.manifold_shape + (1,)) * eye * self.sigma
-    
+        # x shape: (H, W, 3)
+        H, W, _ = x.shape
+        total_pts = H * W
+        eye = jnp.eye(total_pts)
+        # Broadcast identity to (H, W, total_pts)
+        eye_expanded = eye.reshape(H, W, total_pts)
+        # Apply isotropic sigma
+        return eye_expanded * self.sigma
+
     def Sigma(self, x, t):
-        # Use einsum for proper tensor contraction, similar to the Kunita flow for 2D manifolds
-        sigma = self.diffusion_fn(x, t)
-        return jnp.einsum('ijk,klm->ijlm', sigma, sigma.T)
+        # Compute Sigma = Q Q^T
+        Q = self.diffusion_fn(x, t)  # (H, W, total_pts)
+        H, W, J = Q.shape
+        Q_flat = Q.reshape(-1, J)       # (N, J)
+        Sigma = Q_flat @ Q_flat.T       # (N, N)
+        return Sigma.reshape(H, W, W, H)  # reshape back to 2D manifold covariance
 
 class Kunita_Eulerian_SDE(SDE):
     def __init__(self, sigma: DTypeLike, kappa: DTypeLike, grid_dim: int, grid_num: int, grid_range: Tuple[float, float], x0: jnp.ndarray):
@@ -526,6 +528,57 @@ class Kunita_Flow_SDE_3D_Eulerian_2Dmanifold(SDE):
         return jnp.zeros_like(x)    
 
     def diffusion_fn(self, x, t):
+        def Q_half(x, t):
+
+            # define the kernel function
+            kernel_fn = lambda x, y: self.k_alpha * jnp.exp(-0.5 * jnp.linalg.norm(x - y, axis=-1) ** 2 / self.k_sigma ** 2)
+            # compute the kernel matrix
+            print(self.grid.shape)
+            print(x.shape)
+            Q_half = jax.vmap(jax.vmap(jax.vmap(kernel_fn, in_axes=(0, None)), in_axes=(None, 0)), in_axes=(None, 0))(self.grid, x) * self.d_grid
+
+            # the integral(simulated) happens when we do the matrix multiplication in the sde solver, so here we just return the kernel matrix
+            return Q_half 
+        return Q_half(x, t)
+    
+    def Sigma(self, x, t):
+        sigma = self.diffusion_fn(x, t)
+        return jnp.einsum('ijk,klm->ijlm', sigma, sigma.T)
+
+
+class Kunita_Flow_SDE_3D_Eulerian_2Dmanifold_distance(SDE):
+    '''
+    2D manifold上的Kunita flow SDE, dx = sigma(x, t) * dW
+    X: S1 x S1 -> R^3
+    x dimension : (S1, S1, 3) (R^d landmark position, d=3)
+    t dimension : (num_particles, 1) (time)
+    '''
+    def __init__(self, k_alpha: DTypeLike, k_sigma: DTypeLike, grid_num: int, grid_range: Tuple[float, float], x0: jnp.ndarray):
+        super().__init__()
+        self.k_alpha = k_alpha
+        self.k_sigma = k_sigma
+        self.grid_dim = 3
+        self.grid_num = grid_num
+        self.grid_range = grid_range
+        self.noise_size = grid_num ** 3
+        self.d_grid = ((grid_range[1]-grid_range[0]) / grid_num) ** 3 # small square grid size
+        self.x0 = x0
+
+    @property
+    def grid(self):
+        grid_x = jnp.linspace(*self.grid_range, self.grid_num)
+        grid_y = jnp.linspace(*self.grid_range, self.grid_num)
+        grid_z = jnp.linspace(*self.grid_range, self.grid_num)
+        grid_x, grid_y, grid_z = jnp.meshgrid(grid_x, grid_y, grid_z, indexing='xy')
+        grid = jnp.stack([grid_x, grid_y, grid_z], axis=-1)
+        grid = grid.reshape(-1, 3)
+        return grid
+
+    def drift_fn(self, x, t):
+        return jnp.zeros_like(x)    
+
+    def diffusion_fn(self, x, t):
+        x = x + self.x0
         def Q_half(x, t):
 
             # define the kernel function

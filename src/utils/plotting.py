@@ -334,3 +334,138 @@ def plot_trajectory_3d_polyscope(trajectory, current_frame, title, trajectory_al
         ps_curve.set_transparency(0.2)
         # ps_curve.add_scalar_quantity("node_scale", node_scale, enabled=True)
         # ps_curve.add_scalar_quantity("edge_scale", edge_scale, defined_on="edges")
+
+
+import polyscope as ps
+import polyscope.imgui as psim
+import numpy as np
+
+def visualize_score_field_over_time(score_lst, positions, dt=0.01, scale=0.3, radius=1.0):
+    """
+    用 Polyscope 可视化单位球上的 score 向量场，随时间变化。
+
+    Args:
+        score_lst: (T, n_lat, n_lon, 3)，每一帧的向量场
+        positions: (T, n_lat, n_lon, 3)，对应每一帧的球面点位置
+        dt: 时间步长
+        scale: 向量缩放比例
+        radius: 背景球半径
+    """
+    ps.init()
+    ps.remove_all_structures()
+
+    total_time = score_lst.shape[0] * dt
+    time = 0.0
+    frame_idx = 0
+
+    def update_frame(idx):
+        ps.remove_all_structures()
+
+        pts = positions[idx].reshape(-1, 3)
+        vecs = score_lst[idx].reshape(-1, 3)
+
+        pc = ps.register_point_cloud("points", pts)
+        pc.set_radius(0.005)
+        pc.add_vector_quantity("score", vecs * scale, enabled=True)
+
+        # # 添加背景球
+        # u = np.linspace(0, 2 * np.pi, 40)
+        # v = np.linspace(0, np.pi, 20)
+        # x = radius * np.outer(np.cos(u), np.sin(v))
+        # y = radius * np.outer(np.sin(u), np.sin(v))
+        # z = radius * np.outer(np.ones_like(u), np.cos(v))
+        # sphere = np.stack([x.flatten(), y.flatten(), z.flatten()], axis=-1)
+        # ps.register_point_cloud("unit_sphere", sphere)
+        # ps.get_point_cloud("unit_sphere").set_radius(0.001)
+        # ps.get_point_cloud("unit_sphere").set_color((0.8, 0.8, 0.8))
+        # ps.get_point_cloud("unit_sphere").set_transparency(0.95)
+
+    update_frame(frame_idx)
+
+    def callback():
+        nonlocal time, frame_idx
+        changed, time = psim.SliderFloat("Time", time, v_min=0.0, v_max=total_time)
+        if changed:
+            frame_idx = int(time / dt)
+            frame_idx = min(frame_idx, score_lst.shape[0] - 1)
+            time = frame_idx * dt
+            update_frame(frame_idx)
+
+    ps.set_user_callback(callback)
+    ps.show()
+
+
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.cm as cm
+
+def visualize_score_field_with_regions(score_lst, positions, dt=0.01, scale=0.3, radius=1.0):
+    import polyscope as ps
+    import polyscope.imgui as psim
+    import numpy as np
+    import matplotlib.cm as cm
+
+    ps.init()
+    ps.remove_all_structures()
+    total_time = score_lst.shape[0] * dt
+    time = 0.0
+    frame_idx = 0
+
+    def update_frame(idx):
+        ps.remove_all_structures()
+        pts = positions[idx].reshape(-1, 3)
+        vecs = score_lst[idx].reshape(-1, 3)
+        norms = np.linalg.norm(vecs, axis=-1)
+
+        # Colormap for vectors
+        norm_min, norm_max = norms.min(), norms.max()
+        norm_scaled = (norms - norm_min) / (norm_max - norm_min + 1e-8)
+        colors = cm.coolwarm(norm_scaled)[:, :3]
+
+        # Region coloring
+        z = pts[:, 2]
+        theta = np.arccos(np.clip(z / np.linalg.norm(pts, axis=-1), -1.0, 1.0))
+        region_colors = np.full((pts.shape[0], 3), 0.7)
+        region_colors[(theta < 0.2) | (theta > np.pi - 0.2)] = [1.0, 0.3, 0.3]
+        region_colors[(np.abs(theta - np.pi/2) < 0.1)] = [0.3, 1.0, 0.3]
+
+        # Point cloud with vector and color quantities
+        pc = ps.register_point_cloud("points", pts)
+        pc.set_radius(0.005)
+        pc.add_vector_quantity("score", vecs * scale, enabled=True)
+        pc.add_color_quantity("region", region_colors, enabled=True)
+
+        # # Add background sphere
+        # u = np.linspace(0, 2 * np.pi, 40)
+        # v = np.linspace(0, np.pi, 20)
+        # x = radius * np.outer(np.cos(u), np.sin(v))
+        # y = radius * np.outer(np.sin(u), np.sin(v))
+        # z = radius * np.outer(np.ones_like(u), np.cos(v))
+        # sphere = np.stack([x.flatten(), y.flatten(), z.flatten()], axis=-1)
+        # bg = ps.register_point_cloud("unit_sphere", sphere)
+        # bg.set_radius(0.001)
+        # bg.set_color((0.8, 0.8, 0.8))
+        # bg.set_transparency(0.95)
+
+        # === 坐标轴 ===
+        axis_length = 1.5
+        x_axis = np.array([[0, 0, 0], [axis_length, 0, 0]])
+        y_axis = np.array([[0, 0, 0], [0, axis_length, 0]])
+        z_axis = np.array([[0, 0, 0], [0, 0, axis_length]])
+        ps.register_curve_network("x-axis", x_axis, np.array([[0, 1]])).set_color((1, 0, 0))
+        ps.register_curve_network("y-axis", y_axis, np.array([[0, 1]])).set_color((0, 1, 0))
+        ps.register_curve_network("z-axis", z_axis, np.array([[0, 1]])).set_color((0, 0, 1))
+
+    update_frame(frame_idx)
+
+    def callback():
+        nonlocal time, frame_idx
+        changed, time = psim.SliderFloat("Time", time, v_min=0.0, v_max=total_time)
+        if changed:
+            frame_idx = int(time / dt)
+            frame_idx = min(frame_idx, score_lst.shape[0] - 1)
+            time = frame_idx * dt
+            update_frame(frame_idx)
+
+    ps.set_user_callback(callback)
+    ps.show()

@@ -40,7 +40,7 @@ if __name__ == "__main__":
     retrain = False
     retrain_steps = 1500
     draw_unconditional = False
-    in_grid_L = 14
+    in_grid_L = 10
     sphere_data_generator_XT = S2ManifoldDataGenerator(manifold_type="fib_sphere", seed=get_random_int(), radius=0.8, flatten=True)
 
     xT = sphere_data_generator_XT.generate_data(in_grid_L, 1)
@@ -57,7 +57,7 @@ if __name__ == "__main__":
 
     xs = xs + x0[0]
     if not draw_unconditional:
-        model = CTShapeSFNO(x_feature_dim=3, l_list=(8,6), lift_dim=32, latent_feature_dims=(2, 4), sampling="mw", activation="gelu")
+        model = CTShapeSFNO(x_feature_dim=3, l_list=(8,6), lift_dim=8, latent_feature_dims=(2, 4), sampling="mw", activation="gelu")
         trainer = Trainer.NeuralOpTrainer(seed=get_random_int(), landmark_num=in_grid_L)
 
         checkpoint_path = project_root() + '/checkpoints/sphere_model_flatten'
@@ -65,7 +65,7 @@ if __name__ == "__main__":
     
         if not os.path.exists(checkpoint_path):
             train_state = trainer.train_state_init(model, lr=1e-3, model_kwargs={'x': jax.random.normal(jrandom.PRNGKey(get_random_int()), x0[0].shape), 't': jnp.array([0]),'object_fn': 'Yang', 'x_L': in_grid_L})
-            train_state, train_loss = trainer.train(train_state, sde_3d, sde_solver, sphere_data_generator_X0, train_steps, 16, x_L=in_grid_L)
+            train_state, train_loss = trainer.train(train_state, sde_3d, sde_solver, sphere_data_generator_X0, train_steps, 8, x_L=in_grid_L)
             plt.plot(train_loss)
             plt.show()
             # save the model
@@ -77,7 +77,7 @@ if __name__ == "__main__":
             params = restored_checkpoint["model"]["params"]
             train_state = trainer.train_state_init(model, lr=1e-3, model_kwargs={'x': jax.random.normal(jrandom.PRNGKey(get_random_int()), x0[0].shape), 't': jnp.array([0]),'object_fn': 'Yang', 'x_L': in_grid_L}, retrain=True, ckpt_params=params)
             if retrain:
-                train_state, train_loss = trainer.train(train_state, sde_3d, sde_solver, sphere_data_generator_X0, retrain_steps, 16, x_L=in_grid_L)
+                train_state, train_loss = trainer.train(train_state, sde_3d, sde_solver, sphere_data_generator_X0, retrain_steps, 8, x_L=in_grid_L)
                 plt.plot(train_loss)
                 plt.show()
                 # save the model
