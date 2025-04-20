@@ -137,3 +137,30 @@ def pad_inverse_output(x, sampling):
     last_col = x[:, -1:, :]  # copy the last column
     x_padded = jnp.concatenate([x, last_col], axis=1)
     return x_padded
+def get_sampling_grid(L: int, sampling: str = "mw"):
+    """
+    Generate theta and phi sampling grids for spherical coordinates.
+    
+    Args:
+        L: bandlimit
+        sampling: "mw" or "dh"
+    
+    Returns:
+        theta: (L, 2L-1)
+        phi: (L, 2L-1)
+    """
+    if sampling == "mw":
+        n_theta = L
+        n_phi = 2 * L - 1
+        theta = jnp.linspace(0, jnp.pi, n_theta)
+        phi = jnp.linspace(0, 2 * jnp.pi, n_phi, endpoint=False)
+    elif sampling == "dh":
+        n_theta = 2 * L
+        n_phi = 2 * L
+        theta = jnp.linspace(0, jnp.pi, n_theta, endpoint=False) + jnp.pi / (2 * n_theta)
+        phi = jnp.linspace(0, 2 * jnp.pi, n_phi, endpoint=False)
+    else:
+        raise ValueError(f"Unsupported sampling: {sampling}")
+
+    phi_grid, theta_grid = jnp.meshgrid(phi, theta)
+    return theta_grid, phi_grid  # shape: (n_theta, n_phi)

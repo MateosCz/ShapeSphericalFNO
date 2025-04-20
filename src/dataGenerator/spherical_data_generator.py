@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jrandom
 import abc
-
+import numpy as np
 class DataGenerator(abc.ABC):
     def __init__(self):
         pass
@@ -93,12 +93,16 @@ class S2ManifoldDataGenerator(DataGenerator):
             else:
                 theta = jnp.linspace(0, jnp.pi, ntheta, endpoint=False) + jnp.pi/(2 *ntheta)
                 phi = jnp.linspace(0, 2*jnp.pi, nphi, endpoint=False)
-            # drop the last phi
-            phi = phi[:-1]
-            nphi = nphi - 1
+        elif sampling == 'gl':
+            
+            ntheta = L
+            nphi = 2 * L - 1
+            nodes, weights = np.polynomial.legendre.leggauss(L)
+            theta = jnp.flip(jnp.arccos(nodes))
+            phi = jnp.linspace(0, 2 * jnp.pi, nphi, endpoint=False)
             
         else:
-            raise ValueError(f"Unsupported sampling scheme: {sampling}. Use 'mw', 'mwss', or 'dh'")
+            raise ValueError(f"Unsupported sampling scheme: {sampling}. Use 'mw', 'mwss', 'dh', or 'gl'")
         
         # Create meshgrid
         phi_grid, theta_grid = jnp.meshgrid(phi, theta)

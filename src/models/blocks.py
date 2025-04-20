@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 from flax import linen as nn
 import s2fft
-from src.utils.sht_helper import resize_flm, resize_spatial, infer_L_from_shape, pad_inverse_output
+from src.utils.sht_helper import resize_flm, resize_spatial, infer_L_from_shape, pad_inverse_output, get_sampling_grid
 
 def get_activation(activation):
     if activation == "gelu":
@@ -69,15 +69,18 @@ class SphericalSpectralTimeConv(nn.Module):
 
         weight = weight_real + 1j * weight_imag
         
-        t_emb_real = nn.Dense(features=self.L_freq_used)(t_emb)
-        t_emb_imag = nn.Dense(features=self.L_freq_used)(t_emb)
+        # t_emb_real = nn.Dense(features=self.L_freq_used)(t_emb)
+        # t_emb_imag = nn.Dense(features=self.L_freq_used)(t_emb)
+        t_emb_real = nn.Dense(features=self.L_freq_used * self.in_channels * self.out_channels)(t_emb)
+        t_emb_imag = nn.Dense(features=self.L_freq_used * self.in_channels * self.out_channels)(t_emb)
 
         t_emb = t_emb_real + 1j * t_emb_imag
         # t_emb: shape (L_out, 1) , complex vector
+        t_emb = t_emb.reshape(self.L_freq_used, self.in_channels, self.out_channels)
 
-        weight = jnp.einsum("l,lio->lio", t_emb, weight)
+        # weight = jnp.einsum("l,lio->lio", t_emb, weight)
         # weight: shape (L_out, in_channels, out_channels), complex matrix
-
+        weight = jnp.einsum("lio,lio->lio", t_emb, weight)
         x_sht = jnp.einsum("lmi,lio->lmo", x_sht, weight)
         # x_sht: shape (L_out, 2*L_out-1, out_channels), complex matrix
 
@@ -96,6 +99,47 @@ class SphericalSpectralTimeConv(nn.Module):
 
         return x_spatial_out
         
+# class SpatialTimeConv(nn.Module):
+#     out_channels: int
+#     L_out_spatial: int
+#     path: str = "down"
+#     sampling: str = "mw"
+
+#     @nn.compact
+#     def __call__(self, x, t_emb):
+#         L_in = infer_L_from_shape(x, self.sampling)
+#         x = nn.Conv(features=self.out_channels, kernel_size=(1, 1), padding="VALID")(x)  # (L, 2L-1, Cout)
+
+#         # spatial position embedding (based on sphere coordinate grid)
+#         theta, phi = get_sampling_grid(L_in, self.sampling)
+#         pos_encoding = jnp.stack([jnp.sin(theta), jnp.cos(theta), jnp.sin(phi), jnp.cos(phi)], axis=-1)  # (L, 2L-1, 4)
+
+#         pos_proj = nn.Dense(features=self.out_channels)(pos_encoding)  # (L, 2L-1, Cout)
+#         x += pos_proj  # inject position awareness
+
+#         # time embedding projection to spatial map
+#         t_emb_proj = nn.Dense(features=L_in * (2 * L_in - 1) * self.out_channels)(t_emb)
+#         t_emb_map = t_emb_proj.reshape((L_in, 2 * L_in - 1, self.out_channels))
+#         x += t_emb_map  # time-aware bias at each spatial location
+
+#         if self.path == "down":
+#             x = jax.vmap(lambda x: s2fft.forward(x, L_in, method="jax", spin=0, sampling=self.sampling, reality=True), in_axes=(2))(x)
+#             x = jnp.transpose(x, (1, 2, 0))
+#             x = resize_flm(x, self.L_out_spatial)
+#             x = jax.vmap(lambda x: s2fft.inverse(x, self.L_out_spatial, method="jax", spin=0, sampling=self.sampling, reality=True), in_axes=(2))(x)
+#             x = jnp.transpose(x, (1, 2, 0))
+#             x = nn.Conv(features=self.out_channels, kernel_size=(1, 1), padding="VALID")(x)
+#         elif self.path == "up":
+#             x = jax.vmap(lambda x: s2fft.forward(x, L_in, method="jax", spin=0, sampling=self.sampling, reality=True), in_axes=(2))(x)
+#             x = jnp.transpose(x, (1, 2, 0))
+#             x = resize_flm(x, self.L_out_spatial)
+#             x = jax.vmap(lambda x: s2fft.inverse(x, self.L_out_spatial, method="jax", spin=0, sampling=self.sampling, reality=True), in_axes=(2))(x)
+#             x = jnp.transpose(x, (1, 2, 0))
+#             x = nn.Conv(features=self.out_channels, kernel_size=(1, 1), padding="VALID")(x)
+#         else:
+#             x = nn.Conv(features=self.out_channels, kernel_size=(1, 1), padding="VALID")(x)
+
+#         return x
 
 class SpatialTimeConv(nn.Module):
     out_channels: int
@@ -121,7 +165,7 @@ class SpatialTimeConv(nn.Module):
         '''
 
         L_in = infer_L_from_shape(x, self.sampling)
-        x = nn.Conv(features=self.out_channels, kernel_size=(1, 1), padding="VALID")(x)
+        x = nn.Conv(features=self.out_channels, kernel_size=(3, 3), padding="SAME")(x)
 
 
 
@@ -147,7 +191,7 @@ class SpatialTimeConv(nn.Module):
             x = resize_flm(x, self.L_out_spatial)
             x = jax.vmap(lambda x: s2fft.inverse(x, self.L_out_spatial, method="jax", spin=0, sampling=self.sampling,reality=True), in_axes=(2))(x)
             x = jnp.transpose(x,(1,2,0))
-            x = nn.Conv(features=self.out_channels, kernel_size=(1, 1), padding="VALID")(x)
+            x = nn.Conv(features=self.out_channels, kernel_size=(3, 3), padding="SAME")(x)
             # x: shape (L_out, 2*L_out-1, out_channels)
         elif self.path == "up":
             # upsampling
@@ -156,10 +200,10 @@ class SpatialTimeConv(nn.Module):
             x = resize_flm(x, self.L_out_spatial)
             x = jax.vmap(lambda x: s2fft.inverse(x, self.L_out_spatial, method="jax", spin=0, sampling=self.sampling,reality=True), in_axes=(2))(x)
             x = jnp.transpose(x,(1,2,0))
-            x = nn.Conv(features=self.out_channels, kernel_size=(1, 1), padding="VALID")(x)
+            x = nn.Conv(features=self.out_channels, kernel_size=(3, 3), padding="SAME")(x)
             # x: shape (L_out, 2*L_out-1, out_channels)
         else:
-            x = nn.Conv(features=self.out_channels, kernel_size=(1, 1), padding="VALID")(x)
+            x = nn.Conv(features=self.out_channels, kernel_size=(3, 3), padding="SAME")(x)
             # x: shape (L_out, 2*L_out-1, out_channels)
         
         x = x + b_t

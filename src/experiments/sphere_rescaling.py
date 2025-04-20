@@ -42,23 +42,23 @@ if __name__ == "__main__":
     retrain = False
     retrain_steps = 1000
     draw_unconditional = False
-    in_grid_L = 8
-    sphere_data_generator_XT = S2ManifoldDataGenerator(radius=0.7, sampling="mw", manifold_type="fib_sphere", seed=get_random_int(), randomization=False)
+    in_grid_L = 12
+    sphere_data_generator_XT = S2ManifoldDataGenerator(radius=0.7, sampling="gl", manifold_type="fib_sphere", seed=get_random_int(), randomization=False)
 
     xT = sphere_data_generator_XT.generate_data(in_grid_L, 1)
     print(xT.shape)
-    sphere_data_generator_X0 = S2ManifoldDataGenerator(radius=0.5, sampling="mw", manifold_type="fib_sphere", seed=get_random_int(), randomization=False)
+    sphere_data_generator_X0 = S2ManifoldDataGenerator(radius=0.5, sampling="gl", manifold_type="fib_sphere", seed=get_random_int(), randomization=False)
     x0 = sphere_data_generator_X0.generate_data(in_grid_L, 5)
     print(x0.shape)
-    # sde_3d = Kunita_Flow_SDE_3D_Eulerian_2Dmanifold_distance(k_alpha=1.6, k_sigma=0.4, grid_num=10, grid_range=[-1,1], x0=x0[0])
+    sde_3d = Kunita_Flow_SDE_3D_Eulerian_2Dmanifold_distance(k_alpha=1.6, k_sigma=0.4, grid_num=10, grid_range=[-1,1], x0=x0[0])
     # sde_3d = Kunita_Flow_SDE_3D_Eulerian_2Dmanifold(k_alpha=1.6, k_sigma=0.4, grid_num=10, grid_range=[-1,1], x0=x0[0])
-    sde_3d = Brownian_Motion_SDE_2D_Manifold(sigma=0.1, x0=x0[0])
+    # sde_3d = Brownian_Motion_SDE_2D_Manifold(sigma=0.1, x0=x0[0])
     sde_solver = EulerMaruyama.from_sde(sde_3d, 0.02, 1.0, 3, None,debug_mode=False)
     xs,_ = sde_solver.solve(x0[0], rng_key=jrandom.PRNGKey(get_random_int()))
 
     
     if not draw_unconditional:
-        model = CTShapeSFNO(x_feature_dim=3, l_list=(24,), lift_dim=8, latent_feature_dims=(1,), sampling="mw", activation="gelu")
+        model = CTShapeSFNO(x_feature_dim=3, l_list=(16,8), lift_dim=8, latent_feature_dims=(1,2), sampling="gl", activation="gelu")
         trainer = Trainer.NeuralOpTrainer(seed=get_random_int(), landmark_num=in_grid_L)
 
         checkpoint_path = project_root() + '/checkpoints/sphere_model'
@@ -85,12 +85,12 @@ if __name__ == "__main__":
                 config = {"dimension": x0[0].shape}
                 ckpt = {"model": train_state, "config": config}
                 checkpoints.save_checkpoint(retrain_checkpoint_path, ckpt, step=retrain_steps, overwrite=True, keep=1)
-        test_L = 8
+        test_L = 14
         score_fn = lambda x, t, x0: train_state.apply_fn(train_state.params, x, t, test_L)
         x0 = sphere_data_generator_X0.generate_data(test_L, 5)
         xT = sphere_data_generator_XT.generate_data(test_L, 1)   
-        # sde_3d = Kunita_Flow_SDE_3D_Eulerian_2Dmanifold_distance(k_alpha=1.6, k_sigma=0.4, grid_num=10, grid_range=[-1,1], x0=x0[0])
-        sde_3d = Brownian_Motion_SDE_2D_Manifold(sigma=0.1, x0=x0[0])
+        sde_3d = Kunita_Flow_SDE_3D_Eulerian_2Dmanifold_distance(k_alpha=1.6, k_sigma=0.4, grid_num=10, grid_range=[-1,1], x0=x0[0])
+        # sde_3d = Brownian_Motion_SDE_2D_Manifold(sigma=0.1, x0=x0[0])
         reverse_sde = Time_Reversed_SDE_2Dmanifold_Yang(sde_3d, score_fn, 1.0,0.02)
         reverse_solver = EulerMaruyama.from_sde(reverse_sde, 0.02, 1.0, 3, condition_x=x0[0],debug_mode=False)
         condition_xs,_ = reverse_solver.solve(xT[0] - x0[0], rng_key=jrandom.PRNGKey(get_random_int()))
