@@ -39,7 +39,7 @@ def project_root():
 if __name__ == "__main__":
     jax.clear_caches()
     train_steps = 500
-    retrain = False
+    retrain = True
     retrain_steps = 1000
     draw_unconditional = False
     in_grid_L = 12
@@ -58,7 +58,7 @@ if __name__ == "__main__":
 
     
     if not draw_unconditional:
-        model = CTShapeSFNO(x_feature_dim=3, l_list=(16,8), lift_dim=8, latent_feature_dims=(1,2), sampling="gl", activation="gelu")
+        model = CTShapeSFNO(x_feature_dim=3, l_list=(4,2), lift_dim=16, latent_feature_dims=(2,4), sampling="gl", activation="leaky_relu")
         trainer = Trainer.NeuralOpTrainer(seed=get_random_int(), landmark_num=in_grid_L)
 
         checkpoint_path = project_root() + '/checkpoints/sphere_model'
@@ -66,7 +66,7 @@ if __name__ == "__main__":
     
         if not os.path.exists(checkpoint_path):
             train_state = trainer.train_state_init(model, lr=1e-3, model_kwargs={'x': jax.random.normal(jrandom.PRNGKey(get_random_int()), x0[0].shape), 't': jnp.array([0]),'object_fn': 'Yang', 'x_L': in_grid_L})
-            train_state, train_loss = trainer.train(train_state, sde_3d, sde_solver, sphere_data_generator_X0, train_steps, 8, in_grid_L)
+            train_state, train_loss = trainer.train(train_state, sde_3d, sde_solver, sphere_data_generator_X0, train_steps, 16, in_grid_L)
             plt.plot(train_loss)
             plt.show()
             # save the model
@@ -76,16 +76,16 @@ if __name__ == "__main__":
         else:
             restored_checkpoint = checkpoints.restore_checkpoint(checkpoint_path, target=None)
             params = restored_checkpoint["model"]["params"]
-            train_state = trainer.train_state_init(model, lr=1e-3, model_kwargs={'x': jax.random.normal(jrandom.PRNGKey(get_random_int()), x0[0].shape), 't': jnp.array([0]),'object_fn': 'Yang', 'x_L': in_grid_L}, retrain=True, ckpt_params=params)
+            train_state = trainer.train_state_init(model, lr=1e-4, model_kwargs={'x': jax.random.normal(jrandom.PRNGKey(get_random_int()), x0[0].shape), 't': jnp.array([0]),'object_fn': 'Yang', 'x_L': in_grid_L}, retrain=True, ckpt_params=params)
             if retrain:
-                train_state, train_loss = trainer.train(train_state, sde_3d, sde_solver, sphere_data_generator_X0, retrain_steps, 8, in_grid_L)
+                train_state, train_loss = trainer.train(train_state, sde_3d, sde_solver, sphere_data_generator_X0, retrain_steps, 16, in_grid_L)
                 plt.plot(train_loss)
                 plt.show()
                 # save the model
                 config = {"dimension": x0[0].shape}
                 ckpt = {"model": train_state, "config": config}
                 checkpoints.save_checkpoint(retrain_checkpoint_path, ckpt, step=retrain_steps, overwrite=True, keep=1)
-        test_L = 14
+        test_L = 20
         score_fn = lambda x, t, x0: train_state.apply_fn(train_state.params, x, t, test_L)
         x0 = sphere_data_generator_X0.generate_data(test_L, 5)
         xT = sphere_data_generator_XT.generate_data(test_L, 1)   

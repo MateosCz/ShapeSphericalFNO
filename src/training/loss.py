@@ -127,6 +127,15 @@ def single_step_loss(params, state, x_prev, x, t, x0, Sigma, Sigma_prev, drift_p
         # penalty = jnp.mean(jnp.linalg.norm(pred_score + attractor, axis=-1) ** 2) * terminal_mask
         # loss = jnp.linalg.norm(pred_score - b, axis=-1) ** 2
         loss = jnp.sum(jnp.square(pred_score - b), axis=-1)
+
+        # delta = 0.2
+        # theta_grid = jnp.arccos(x[..., 2])
+        # equator_mask = (theta_grid > jnp.pi / 2 - delta) & (theta_grid < jnp.pi / 2 + delta)
+        # equator_penalty = jnp.mean(jnp.linalg.norm(pred_score, axis=-1) * equator_mask)
+        # loss += 1e-3 * equator_penalty
+
+
+        
         # loss = jax.lax.cond(
         #     terminal_mask,
         #     lambda _: loss_main + 1.0 * penalty,
