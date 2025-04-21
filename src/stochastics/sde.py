@@ -49,22 +49,23 @@ class Brownian_Motion_SDE_2D_Manifold(SDE):
         return jnp.zeros_like(x)
 
     def diffusion_fn(self, x, t):
+        # return self.sigma
         # x shape: (H, W, 3)
         H, W, _ = x.shape
         total_pts = H * W
-        eye = jnp.eye(total_pts)
+        eye = jnp.eye(total_pts) * self.sigma
         # Broadcast identity to (H, W, total_pts)
         eye_expanded = eye.reshape(H, W, total_pts)
         # Apply isotropic sigma
-        return eye_expanded * self.sigma
+        return eye_expanded 
 
     def Sigma(self, x, t):
         # Compute Sigma = Q Q^T
-        Q = self.diffusion_fn(x, t)  # (H, W, total_pts)
-        H, W, J = Q.shape
-        Q_flat = Q.reshape(-1, J)       # (N, J)
-        Sigma = Q_flat @ Q_flat.T       # (N, N)
-        return Sigma.reshape(H, W, W, H)  # reshape back to 2D manifold covariance
+        # Q = self.diffusion_fn(x, t)  # (H, W, total_pts)
+        # H, W, J = Q.shape
+        # Q_flat = Q.reshape(-1, J)       # (N, J)
+        # Sigma = Q_flat @ Q_flat.T       # (N, N)
+        return self.sigma ** 2
 
 class Kunita_Eulerian_SDE(SDE):
     def __init__(self, sigma: DTypeLike, kappa: DTypeLike, grid_dim: int, grid_num: int, grid_range: Tuple[float, float], x0: jnp.ndarray):

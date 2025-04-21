@@ -28,7 +28,9 @@ class CTShapeSFNO(nn.Module):
     @nn.compact
     def __call__(self, x, t, x_L):
         time_emb_dim = self.lift_dim * 4
-        time_emb = TimeEmbedding(t_emb_dim=time_emb_dim)(t)
+        # time_emb = TimeEmbedding(t_emb_dim=time_emb_dim)(t)
+        time_emb_phi = TimeEmbedding(c=time_emb_dim)(t)
+        time_emb_psi = TimeEmbedding(c=time_emb_dim)(t)
         flatten = False
         phi_dim = get_phi_dim(x_L, self.sampling)
 
@@ -40,7 +42,7 @@ class CTShapeSFNO(nn.Module):
                 x = jnp.reshape(x, (x_L, phi_dim, x.shape[1]))
             flatten = True
 
-        x = nn.Dense(features=self.lift_dim)(x)
+        x = nn.Dense(features=self.lift_dim, kernel_init=nn.initializers.normal(0.1))(x)
         x = nn.gelu(x)
         final_l_spatial = infer_L_from_shape(x, self.sampling)
 
@@ -61,7 +63,8 @@ class CTShapeSFNO(nn.Module):
                             out_channels=latent_feature_dims[i+1] * self.lift_dim, 
                             path="down",
                             sampling=self.sampling, 
-                            activation=self.activation)(x, time_emb)
+                            activation=self.activation,
+                            grid_embedding=True)(x, time_emb_phi, time_emb_psi)
             down_list.append(x)
 
         # lowest block
@@ -71,7 +74,8 @@ class CTShapeSFNO(nn.Module):
                         out_channels=latent_feature_dims[-1] * self.lift_dim, 
                         path="middle",
                         sampling=self.sampling, 
-                        activation=self.activation)(x, time_emb)
+                        activation=self.activation,
+                        grid_embedding=True)(x, time_emb_phi, time_emb_psi)
                         
 
         # upsampling
@@ -84,7 +88,8 @@ class CTShapeSFNO(nn.Module):
                             out_channels=latent_feature_dims[-(i+1)] * self.lift_dim, 
                             path="up",
                             sampling=self.sampling, 
-                            activation=self.activation)(x, time_emb)
+                            activation=self.activation,
+                            grid_embedding=True)(x, time_emb_phi, time_emb_psi)
         # outermost block
         x = jnp.concatenate([x, down_list[0]], axis=-1)
         x = CTSFNOBlock(L_freq_used=l_list[0],
@@ -93,10 +98,10 @@ class CTShapeSFNO(nn.Module):
                         out_channels= latent_feature_dims[0] * self.lift_dim, 
                         path="up",
                         sampling=self.sampling, 
-                        activation=self.activation)(x, time_emb)
+                        activation=self.activation)(x, time_emb_phi, time_emb_psi)
         # x = pad_inverse_output(x, self.sampling)
-        x = nn.Conv(features=self.x_feature_dim, kernel_size=(1, 1), padding="VALID")(x)
-        # x = nn.Dense(features=self.x_feature_dim)(x)
+        # x = nn.Conv(features=self.x_feature_dim, kernel_size=(1, 1), padding="VALID")(x)
+        x = nn.Dense(features=self.x_feature_dim, kernel_init=nn.initializers.normal(0.1))(x)
         if flatten:
             x = jnp.reshape(x, (x.shape[0] * x.shape[1], x.shape[2]))
         return x

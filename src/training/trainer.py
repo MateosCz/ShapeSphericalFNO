@@ -121,7 +121,10 @@ class NeuralOpTrainer(Trainer):
         init_key = self.key_monitor.next_key()
         
         # Initialize model parameters - removed train parameter
-        params = model.init(init_key, model_kwargs['x'], model_kwargs['t'], model_kwargs['x_L'])
+        if 'x_L' in model_kwargs:
+            params = model.init(init_key, model_kwargs['x'], model_kwargs['t'], model_kwargs['x_L'])
+        else:
+            params = model.init(init_key, model_kwargs['x'], model_kwargs['t'])
         if retrain:
             params = ckpt_params
         

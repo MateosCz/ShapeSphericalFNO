@@ -113,8 +113,10 @@ def single_step_loss(params, state, x_prev, x, t, x0, Sigma, Sigma_prev, drift_p
     elif object_fn == 'Yang':
         if with_x0:
             pred_score = state.apply_fn(params, x, t, x0, x_L)
+            # pred_score = state.apply_fn(params, x, t, x0)
         else:
             pred_score = state.apply_fn(params, x, t, x_L)
+            # pred_score = state.apply_fn(params, x, t)
         
         # add penalty on polar parts
         # theta_grid = jnp.arccos(x[..., 2])
@@ -126,7 +128,7 @@ def single_step_loss(params, state, x_prev, x, t, x0, Sigma, Sigma_prev, drift_p
         # attractor = (x-x0) / 1e-2
         # penalty = jnp.mean(jnp.linalg.norm(pred_score + attractor, axis=-1) ** 2) * terminal_mask
         # loss = jnp.linalg.norm(pred_score - b, axis=-1) ** 2
-        loss = jnp.sum(jnp.square(pred_score - b), axis=-1)
+        loss = jnp.mean(jnp.sum(jnp.square(pred_score - b), axis=-1),axis=-1)
 
         # delta = 0.2
         # theta_grid = jnp.arccos(x[..., 2])

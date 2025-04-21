@@ -1,5 +1,5 @@
 import jax.numpy as jnp
-
+import numpy as np
 def resize_flm(flm, target_L):
     """
     将球谐系数从带限Lbian   到目标带限target_L
@@ -48,39 +48,6 @@ def resize_flm(flm, target_L):
     return resized_flm
 
 
-def resize_spatial(f, target_L):
-    """
-    将空间域数据从带限L扩展到目标带限target_L，通过在周围对称补零
-    
-    Args:
-        f: 原始空间域数据，形状为(L, 2L-1, d)
-        target_L: 目标带限
-        
-    Returns:
-        扩展后的空间域数据，形状为(target_L, 2*target_L-1, d)
-    """
-    L = f.shape[0]
-    current_phi_size = 2 * L - 1
-    target_phi_size = 2 * target_L - 1
-    
-    # 创建目标数组
-    resized_f = jnp.zeros((target_L, target_phi_size)) + 0j if f.dtype == jnp.complex128 else jnp.zeros((target_L, target_phi_size))
-    
-    if len(f.shape) > 2:  # 处理多通道情况
-        resized_f = jnp.zeros((target_L, target_phi_size, f.shape[2]), dtype=f.dtype)
-    # 计算纬度方向的填充参数
-    pad_lat = target_L - L
-    start_lat = pad_lat // 2
-    end_lat = start_lat + L
-    
-    # 计算经度方向的填充参数（总是偶数填充）
-    pad_lon = target_phi_size - current_phi_size
-    start_lon = pad_lon // 2  # 因为pad_lon = 2*(target_L - L)
-    end_lon = start_lon + current_phi_size
-    
-    # 执行填充操作
-    return resized_f.at[start_lat:end_lat, 
-                         start_lon:end_lon].set(f)
 
 def Legendre_Polynomial(x, L):
     """
@@ -159,8 +126,25 @@ def get_sampling_grid(L: int, sampling: str = "mw"):
         n_phi = 2 * L
         theta = jnp.linspace(0, jnp.pi, n_theta, endpoint=False) + jnp.pi / (2 * n_theta)
         phi = jnp.linspace(0, 2 * jnp.pi, n_phi, endpoint=False)
+    elif sampling == "gl":
+        n_theta = L
+        n_phi = 2 * L - 1
+        nodes, weights = np.polynomial.legendre.leggauss(L)
+        theta = jnp.flip(jnp.arccos(nodes))
+        phi = jnp.linspace(0, 2 * jnp.pi, n_phi, endpoint=False)
     else:
         raise ValueError(f"Unsupported sampling: {sampling}")
 
     phi_grid, theta_grid = jnp.meshgrid(phi, theta)
     return theta_grid, phi_grid  # shape: (n_theta, n_phi)
+
+
+def get_theta_from_x(x):
+    """
+    Infer theta values from input x of shape (L, 2L-1, 3)
+    Works only if input is sampled on a sphere.
+    """
+    z = x[..., 2]  # z = cos(theta)
+    z = jnp.clip(z, -1.0, 1.0)
+    theta = jnp.arccos(z)
+    return theta

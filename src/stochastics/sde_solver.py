@@ -58,6 +58,7 @@ class EulerMaruyama(SDESolver):
             diffusion = self.diffusion_fn(x, t)
             if x.ndim == 3:
                 x_next = x + drift * self.dt + jnp.einsum('ijk,kl->ijl', diffusion, dW)
+                # x_next = x + drift * self.dt + diffusion * dW.reshape(x.shape)
             elif x.ndim == 2:
                 x_next = x + drift * self.dt + jnp.einsum('ij,jk->ik', diffusion, dW)
             if self.debug_mode:

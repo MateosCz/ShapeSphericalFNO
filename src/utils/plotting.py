@@ -469,3 +469,25 @@ def visualize_score_field_with_regions(score_lst, positions, dt=0.01, scale=0.3,
 
     ps.set_user_callback(callback)
     ps.show()
+
+
+def plot_time_slice_shape(x0_eval, xT_eval, xt):
+    cmap = plt.get_cmap("autumn")
+    fig, axs = plt.subplots(1, 6, subplot_kw={'projection': '3d'}, figsize=(12, 4))
+
+    axs[0].plot_wireframe(x0_eval[:, :, 0], x0_eval[:, :, 1], x0_eval[:, :, 2], alpha=0.2, color="red", label=r"$x_0$")
+    axs[0].plot_wireframe(xT_eval[:, :, 0], xT_eval[:, :, 1], xT_eval[:, :, 2], alpha=0.2, color="blue", label=r"$x_T$")
+    axs[0].grid(False)
+    axs[0].set_axis_off()
+
+    for j in range(1, 6):
+        x = xt[j*10-1]
+        axs[j].plot_wireframe(x0_eval[:, :, 0], x0_eval[:, :, 1], x0_eval[:, :, 2], alpha=0.05, color="red", label=r"$x_0$")
+        axs[j].plot_surface(x[:, :, 0], x[:, :, 1], x[:, :, 2], alpha=0.7, cmap=cmap, label=r"$y_t$", antialiased=True, shade=True, rstride=1, cstride=1)
+        axs[j].plot_wireframe(xT_eval[:, :, 0], xT_eval[:, :, 1], xT_eval[:, :, 2], alpha=0.05, color="blue", label=r"$v$")
+        axs[j].grid(False)
+        axs[j].set_axis_off()
+        axs[j].dist = 8
+        axs[j].elev = 20
+        axs[j].azim = -60
+    plt.show()

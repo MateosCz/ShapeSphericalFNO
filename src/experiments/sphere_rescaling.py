@@ -23,7 +23,7 @@ import random
 import polyscope as ps
 import src.training.trainer as Trainer
 import matplotlib.pyplot as plt
-from src.utils.plotting import plot_trajectory_3d_polyscope, plot_trajectory_3d, visualize_score_field_with_regions
+from src.utils.plotting import plot_trajectory_3d_polyscope, plot_trajectory_3d, visualize_score_field_with_regions, plot_time_slice_shape
 from src.models.neural_operator import CTShapeSFNO
 from flax.training import checkpoints
 def get_random_int():
@@ -38,34 +38,34 @@ def project_root():
 
 if __name__ == "__main__":
     jax.clear_caches()
-    train_steps = 500
-    retrain = True
+    train_steps = 1000
+    retrain = False
     retrain_steps = 1000
     draw_unconditional = False
     in_grid_L = 12
-    sphere_data_generator_XT = S2ManifoldDataGenerator(radius=0.7, sampling="gl", manifold_type="fib_sphere", seed=get_random_int(), randomization=False)
+    sphere_data_generator_XT = S2ManifoldDataGenerator(radius=0.7, sampling="gl", manifold_type="sphere", seed=get_random_int(), randomization=False)
 
     xT = sphere_data_generator_XT.generate_data(in_grid_L, 1)
     print(xT.shape)
-    sphere_data_generator_X0 = S2ManifoldDataGenerator(radius=0.5, sampling="gl", manifold_type="fib_sphere", seed=get_random_int(), randomization=False)
+    sphere_data_generator_X0 = S2ManifoldDataGenerator(radius=0.5, sampling="gl", manifold_type="sphere", seed=get_random_int(), randomization=False)
     x0 = sphere_data_generator_X0.generate_data(in_grid_L, 5)
     print(x0.shape)
     sde_3d = Kunita_Flow_SDE_3D_Eulerian_2Dmanifold_distance(k_alpha=1.6, k_sigma=0.4, grid_num=10, grid_range=[-1,1], x0=x0[0])
     # sde_3d = Kunita_Flow_SDE_3D_Eulerian_2Dmanifold(k_alpha=1.6, k_sigma=0.4, grid_num=10, grid_range=[-1,1], x0=x0[0])
-    # sde_3d = Brownian_Motion_SDE_2D_Manifold(sigma=0.1, x0=x0[0])
+    # sde_3d = Brownian_Motion_SDE_2D_Manifold(sigma=0.4, x0=x0[0])
     sde_solver = EulerMaruyama.from_sde(sde_3d, 0.02, 1.0, 3, None,debug_mode=False)
     xs,_ = sde_solver.solve(x0[0], rng_key=jrandom.PRNGKey(get_random_int()))
 
     
     if not draw_unconditional:
-        model = CTShapeSFNO(x_feature_dim=3, l_list=(4,2), lift_dim=16, latent_feature_dims=(2,4), sampling="gl", activation="leaky_relu")
+        model = CTShapeSFNO(x_feature_dim=3, l_list=(8,8), lift_dim=16, latent_feature_dims=(2,2), sampling="gl", activation="gelu")
         trainer = Trainer.NeuralOpTrainer(seed=get_random_int(), landmark_num=in_grid_L)
 
         checkpoint_path = project_root() + '/checkpoints/sphere_model'
         retrain_checkpoint_path = project_root() + '/checkpoints/sphere_model_retrain'
     
         if not os.path.exists(checkpoint_path):
-            train_state = trainer.train_state_init(model, lr=1e-3, model_kwargs={'x': jax.random.normal(jrandom.PRNGKey(get_random_int()), x0[0].shape), 't': jnp.array([0]),'object_fn': 'Yang', 'x_L': in_grid_L})
+            train_state = trainer.train_state_init(model, lr=5e-4, model_kwargs={'x': jax.random.normal(jrandom.PRNGKey(get_random_int()), x0[0].shape), 't': jnp.array([0]),'object_fn': 'Yang', 'x_L': in_grid_L})
             train_state, train_loss = trainer.train(train_state, sde_3d, sde_solver, sphere_data_generator_X0, train_steps, 16, in_grid_L)
             plt.plot(train_loss)
             plt.show()
@@ -85,12 +85,12 @@ if __name__ == "__main__":
                 config = {"dimension": x0[0].shape}
                 ckpt = {"model": train_state, "config": config}
                 checkpoints.save_checkpoint(retrain_checkpoint_path, ckpt, step=retrain_steps, overwrite=True, keep=1)
-        test_L = 20
+        test_L = 40
         score_fn = lambda x, t, x0: train_state.apply_fn(train_state.params, x, t, test_L)
         x0 = sphere_data_generator_X0.generate_data(test_L, 5)
         xT = sphere_data_generator_XT.generate_data(test_L, 1)   
         sde_3d = Kunita_Flow_SDE_3D_Eulerian_2Dmanifold_distance(k_alpha=1.6, k_sigma=0.4, grid_num=10, grid_range=[-1,1], x0=x0[0])
-        # sde_3d = Brownian_Motion_SDE_2D_Manifold(sigma=0.1, x0=x0[0])
+        # sde_3d = Brownian_Motion_SDE_2D_Manifold(sigma=0.4, x0=x0[0])
         reverse_sde = Time_Reversed_SDE_2Dmanifold_Yang(sde_3d, score_fn, 1.0,0.02)
         reverse_solver = EulerMaruyama.from_sde(reverse_sde, 0.02, 1.0, 3, condition_x=x0[0],debug_mode=False)
         condition_xs,_ = reverse_solver.solve(xT[0] - x0[0], rng_key=jrandom.PRNGKey(get_random_int()))
@@ -100,6 +100,7 @@ if __name__ == "__main__":
         score_lst = jax.vmap(score_fn, in_axes=(0, 0, None))(condition_xs[:-1], time_lst, x0[0])
         print("score_lst.shape", score_lst.shape)
         condition_xs = condition_xs + x0[0]
+        plot_time_slice_shape(x0, xT, condition_xs)
         condition_xs = condition_xs.reshape(condition_xs.shape[0], -1, 3)
         # condition_xs = xs
         condition_xs = np.array(condition_xs)
