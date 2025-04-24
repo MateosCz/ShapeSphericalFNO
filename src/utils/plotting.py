@@ -2,7 +2,8 @@ import matplotlib.pyplot as plt
 import jax.numpy as jnp
 import jax
 import matplotlib.collections as mcoll
-
+from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 def plot_trajectory_2d(trajectory, title, trajectory_alpha=0.8, start_shape_name='start', end_shape_name='end', simplified=True):
     # trajectory: (time_steps, landmark_num, 2)
     fig, ax = plt.subplots()
@@ -471,23 +472,65 @@ def visualize_score_field_with_regions(score_lst, positions, dt=0.01, scale=0.3,
     ps.show()
 
 
-def plot_time_slice_shape(x0_eval, xT_eval, xt):
+# def plot_time_slice_shape(x0_eval, xT_eval, xt):
+#     cmap = plt.get_cmap("autumn")
+#     fig, axs = plt.subplots(1, 6, subplot_kw={'projection': '3d'}, figsize=(12, 4))
+
+#     axs[0].plot_wireframe(x0_eval[:, :, 0], x0_eval[:, :, 1], x0_eval[:, :, 2], alpha=0.2, color="red", label=r"$x_0$")
+#     axs[0].plot_wireframe(xT_eval[:, :, 0], xT_eval[:, :, 1], xT_eval[:, :, 2], alpha=0.2, color="blue", label=r"$x_T$")
+#     axs[0].grid(False)
+#     axs[0].set_axis_off()
+
+#     for j in range(1, 6):
+#         x = xt[j*10-1]
+#         axs[j].plot_wireframe(x0_eval[:, :, 0], x0_eval[:, :, 1], x0_eval[:, :, 2], alpha=0.05, color="red", label=r"$x_0$")
+#         axs[j].plot_surface(x[:, :, 0], x[:, :, 1], x[:, :, 2], alpha=0.7, cmap=cmap, label=r"$y_t$", antialiased=True, shade=True, rstride=1, cstride=1)
+#         axs[j].plot_wireframe(xT_eval[:, :, 0], xT_eval[:, :, 1], xT_eval[:, :, 2], alpha=0.05, color="blue", label=r"$v$")
+#         axs[j].grid(False)
+#         axs[j].set_axis_off()
+#         axs[j].dist = 8
+#         axs[j].elev = 20
+#         axs[j].azim = -60
+#     plt.show()
+#     plt.savefig("time_slice_shape_kunita_sphere.png")
+
+def plot_time_slice_shape(x0_eval, xT_eval, xt, ts=None):
+    import matplotlib.pyplot as plt
+
     cmap = plt.get_cmap("autumn")
     fig, axs = plt.subplots(1, 6, subplot_kw={'projection': '3d'}, figsize=(12, 4))
 
-    axs[0].plot_wireframe(x0_eval[:, :, 0], x0_eval[:, :, 1], x0_eval[:, :, 2], alpha=0.2, color="red", label=r"$x_0$")
-    axs[0].plot_wireframe(xT_eval[:, :, 0], xT_eval[:, :, 1], xT_eval[:, :, 2], alpha=0.2, color="blue", label=r"$x_T$")
+    # 时间点
+    if ts is None:
+        ts = [0.0] + [0.1 * j for j in range(1, 6)]  # 默认时间点
+
+    axs[0].plot_wireframe(x0_eval[:, :, 0], x0_eval[:, :, 1], x0_eval[:, :, 2], alpha=0.2, color="red")
+    axs[0].plot_wireframe(xT_eval[:, :, 0], xT_eval[:, :, 1], xT_eval[:, :, 2], alpha=0.2, color="blue")
     axs[0].grid(False)
     axs[0].set_axis_off()
+    axs[0].set_title(f"t = {ts[0]:.2f}", pad=10)
 
     for j in range(1, 6):
         x = xt[j*10-1]
-        axs[j].plot_wireframe(x0_eval[:, :, 0], x0_eval[:, :, 1], x0_eval[:, :, 2], alpha=0.05, color="red", label=r"$x_0$")
-        axs[j].plot_surface(x[:, :, 0], x[:, :, 1], x[:, :, 2], alpha=0.7, cmap=cmap, label=r"$y_t$", antialiased=True, shade=True, rstride=1, cstride=1)
-        axs[j].plot_wireframe(xT_eval[:, :, 0], xT_eval[:, :, 1], xT_eval[:, :, 2], alpha=0.05, color="blue", label=r"$v$")
+        axs[j].plot_wireframe(x0_eval[:, :, 0], x0_eval[:, :, 1], x0_eval[:, :, 2], alpha=0.05, color="red")
+        axs[j].plot_surface(x[:, :, 0], x[:, :, 1], x[:, :, 2], alpha=0.7, cmap=cmap, antialiased=True, shade=True, rstride=1, cstride=1)
+        axs[j].plot_wireframe(xT_eval[:, :, 0], xT_eval[:, :, 1], xT_eval[:, :, 2], alpha=0.05, color="blue")
         axs[j].grid(False)
         axs[j].set_axis_off()
         axs[j].dist = 8
         axs[j].elev = 20
         axs[j].azim = -60
+        axs[j].set_title(f"t = {ts[j]:.2f}", pad=10)
+
+    # 构造 legend
+    legend_elements = [
+        Line2D([0], [0], color='red', lw=2, label=r'$x_0$'),
+        Line2D([0], [0], color='blue', lw=2, label=r'$x_T$'),
+        Patch(facecolor=cmap(0.5), edgecolor='k', label=r'$x_t$'),
+    ]
+    fig.legend(handles=legend_elements, loc='upper center', ncol=3, bbox_to_anchor=(0.5, 1.05))
+
+    plt.tight_layout()
+    plt.subplots_adjust(top=1.0)  # 给 legend 留空间
+    plt.savefig("time_slice_shape_kunita_sphere.png", dpi=300)
     plt.show()

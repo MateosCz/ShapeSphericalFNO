@@ -25,7 +25,8 @@ class S2ManifoldDataGenerator(DataGenerator):
     
     def __init__(self, sampling: str = "mw", manifold_type: str = "sphere", 
                  radius: float = 1.0, height: float = 2.0, minor_radius: float = 0.5, 
-                 major_radius: float = 2.0, width: float = 0.5, center: jnp.ndarray = jnp.array([0.0, 0.0, 0.0]), flatten: bool = False, seed=0, randomization: bool = False):
+                 major_radius: float = 2.0, width: float = 0.5, center: jnp.ndarray = jnp.array([0.0, 0.0, 0.0]), flatten: bool = False, seed=0, randomization: bool = False, epsilon1: float = 1.0, epsilon2: float = 1.0, a: float = 1.0, b: float = 1.0, c: float = 1.0, 
+                 A: float = 0.3, n: int = 4, m: int = 5):
         """
         Initialize the data generator.
         
@@ -43,6 +44,14 @@ class S2ManifoldDataGenerator(DataGenerator):
         self.center = center
         self.flatten = flatten
         self.randomization = randomization
+        self.epsilon1 = epsilon1
+        self.epsilon2 = epsilon2
+        self.a = a
+        self.b = b
+        self.c = c  
+        self.A = A
+        self.n = n
+        self.m = m
     def generate_sampling_grid(self, L, sampling='mw'):
         """
         Generate angular sampling grid based on the requested scheme.
@@ -98,7 +107,10 @@ class S2ManifoldDataGenerator(DataGenerator):
             ntheta = L
             nphi = 2 * L - 1
             nodes, weights = np.polynomial.legendre.leggauss(L)
-            theta = jnp.flip(jnp.arccos(nodes))
+            if self.manifold_type == 'torus':
+                theta = jnp.linspace(0, 2*jnp.pi, ntheta, endpoint=False)
+            else:
+                theta = jnp.flip(jnp.arccos(nodes))
             phi = jnp.linspace(0, 2 * jnp.pi, nphi, endpoint=False)
             
         else:
@@ -175,7 +187,7 @@ class S2ManifoldDataGenerator(DataGenerator):
         
         return points
     
-    def torus(self, theta_grid, phi_grid, major_radius=2.0, minor_radius=0.5, center=None):
+    def torus(self, theta_grid, phi_grid, major_radius=0.8, minor_radius=0.2, center=None):
         """
         Generate points on a torus.
         
@@ -206,6 +218,50 @@ class S2ManifoldDataGenerator(DataGenerator):
         points = jnp.stack([x, y, z], axis=-1)
         
         return points
+    
+    def closed_cylinder(self, theta_grid, phi_grid, radius=1.0, height=2.0, center=None):
+        """
+        Generate a closed cylinder (with side + top/bottom caps).
+
+        theta_grid: vertical (z-axis) index → Gauss-Legendre
+        phi_grid: angular around z-axis
+        """
+        if center is None:
+            center = jnp.array([0.0, 0.0, 0.0])
+
+        # Side surface
+        x = radius * jnp.cos(phi_grid)
+        y = radius * jnp.sin(phi_grid)
+        z = height * (theta_grid / jnp.pi - 0.5)  # GL: theta ∈ [0, π]
+
+        side_points = jnp.stack([x, y, z], axis=-1)
+
+        # Bottom cap
+        mask_bottom = theta_grid < 0.25 * jnp.pi
+        r_bottom = radius * (theta_grid / (0.25 * jnp.pi))
+        cap_x = r_bottom * jnp.cos(phi_grid)
+        cap_y = r_bottom * jnp.sin(phi_grid)
+        cap_z = jnp.full_like(cap_x, -height / 2)
+        bottom_points = jnp.stack([cap_x, cap_y, cap_z], axis=-1)
+
+        # Top cap
+        mask_top = theta_grid > 0.75 * jnp.pi
+        r_top = radius * ((jnp.pi - theta_grid) / (0.25 * jnp.pi))
+        cap_x = r_top * jnp.cos(phi_grid)
+        cap_y = r_top * jnp.sin(phi_grid)
+        cap_z = jnp.full_like(cap_x, height / 2)
+        top_points = jnp.stack([cap_x, cap_y, cap_z], axis=-1)
+
+        # 替换边界点
+        points = jnp.where(mask_bottom[..., None], bottom_points, side_points)
+        points = jnp.where(mask_top[..., None], top_points, points)
+
+        # Apply center shift
+        points = points + center[None, None, :]
+
+        return points
+            
+    
     
     def mobius_strip(self, theta_grid, phi_grid, radius=2.0, width=0.5, center=None):
         """
@@ -288,6 +344,93 @@ class S2ManifoldDataGenerator(DataGenerator):
         
         return points
     
+    def heart_surface(self, theta_grid, phi_grid, center=None):
+        """
+        生成一个 3D 心形曲面点云，支持 (L, 2L-1, 3) 格式。
+        theta: ∈ [0, π]
+        phi: ∈ [0, 2π]
+        """
+        if center is None:
+            center = jnp.array([0.0, 0.0, 0.0])
+
+        # 半径函数 r(θ)
+        sin_t = jnp.sin(theta_grid)
+        cos_t = jnp.cos(theta_grid)
+        r = 2 - 2 * sin_t + (sin_t * jnp.sqrt(jnp.abs(cos_t))) / (sin_t + 1.4)
+
+        # 转换为 3D 坐标
+        x = r * sin_t * jnp.cos(phi_grid)
+        y = r * sin_t * jnp.sin(phi_grid)
+        z = r * cos_t
+
+        points = jnp.stack([x, y, z], axis=-1)
+        points = points + center[None, None, :]
+        return points
+    
+    def superquadric_sphere(self, theta_grid, phi_grid, epsilon1=1.0, epsilon2=1.0, a=1.0, center=None):
+        """
+        生成超二次球面（superquadric sphere）点云。
+        θ ∈ [0, π], φ ∈ [0, 2π]
+        """
+        if center is None:
+            center = jnp.array([0.0, 0.0, 0.0])
+
+        # helper: 处理负数指数时的 sign 保留
+        def sgnpow(x, p):
+            return jnp.sign(x) * jnp.abs(x) ** p
+
+        # 计算每个维度
+        x = a * sgnpow(jnp.sin(theta_grid), epsilon1) * sgnpow(jnp.cos(phi_grid), epsilon2)
+        y = a * sgnpow(jnp.sin(theta_grid), epsilon1) * sgnpow(jnp.sin(phi_grid), epsilon2)
+        z = a * sgnpow(jnp.cos(theta_grid), epsilon1)
+
+        pts = jnp.stack([x, y, z], axis=-1)
+        pts = pts + center[None, None, :]
+        return pts
+    
+    def superellipsoid(self, theta_grid, phi_grid, 
+                    a=1.0, b=1.0, c=1.0, 
+                    epsilon1=1.0, epsilon2=1.0, 
+                    center=None):
+        """
+        生成一个 (L, 2L-1, 3) 格式的 super ellipsoid 点云
+        参数:
+            theta_grid: ∈ [0, π]
+            phi_grid: ∈ [0, 2π]
+        """
+        if center is None:
+            center = jnp.array([0.0, 0.0, 0.0])
+        
+        def sgnpow(x, p):
+            return jnp.sign(x) * jnp.abs(x) ** p
+
+        cos_theta = jnp.cos(theta_grid)
+        sin_theta = jnp.sin(theta_grid)
+        cos_phi = jnp.cos(phi_grid)
+        sin_phi = jnp.sin(phi_grid)
+
+        x = a * sgnpow(cos_theta, epsilon1) * sgnpow(cos_phi, epsilon2)
+        y = b * sgnpow(cos_theta, epsilon1) * sgnpow(sin_phi, epsilon2)
+        z = c * sgnpow(sin_theta, epsilon1)
+
+        pts = jnp.stack([x, y, z], axis=-1)
+        pts = pts + center[None, None, :]
+        return pts
+    
+    def bump_sphere(self, theta_grid, phi_grid, radius=1.0, A=0.3, n=4, m=5, center=None):
+        if center is None:
+            center = jnp.array([0.0, 0.0, 0.0])
+
+        r = radius + A * jnp.sin(n * theta_grid) * jnp.cos(m * phi_grid)
+
+        x = r * jnp.sin(theta_grid) * jnp.cos(phi_grid)
+        y = r * jnp.sin(theta_grid) * jnp.sin(phi_grid)
+        z = r * jnp.cos(theta_grid)
+
+        pts = jnp.stack([x, y, z], axis=-1)
+        pts = pts + center[None, None, :]
+        return pts
+    
     def _generate_data_single(self, L, sampling, key):
         theta_grid, phi_grid, ntheta, nphi = self.generate_sampling_grid(L, sampling)
         if self.manifold_type == 'sphere':
@@ -296,10 +439,20 @@ class S2ManifoldDataGenerator(DataGenerator):
             points = self.cylinder(theta_grid, phi_grid, self.radius, self.height, self.center)
         elif self.manifold_type == 'torus':
             points = self.torus(theta_grid, phi_grid, self.major_radius, self.minor_radius, self.center)
+        elif self.manifold_type == 'closed_cylinder':
+            points = self.closed_cylinder(theta_grid, phi_grid, self.radius, self.height, self.center)
         elif self.manifold_type == 'mobius':
             points = self.mobius_strip(theta_grid, phi_grid, self.radius, self.width, self.center)
         elif self.manifold_type == 'fib_sphere':
             points = self.fib_sphere(theta_grid, phi_grid, self.radius, self.center)
+        elif self.manifold_type == 'heart_surface':
+            points = self.heart_surface(theta_grid, phi_grid, self.center)
+        elif self.manifold_type == 'superquadric_sphere':
+            points = self.superquadric_sphere(theta_grid, phi_grid, self.epsilon1, self.epsilon2, self.a, self.center)
+        elif self.manifold_type == 'superellipsoid':
+            points = self.superellipsoid(theta_grid, phi_grid, self.a, self.b, self.c, self.epsilon1, self.epsilon2, self.center)
+        elif self.manifold_type == 'bump_sphere':
+            points = self.bump_sphere(theta_grid, phi_grid, self.radius, self.A, self.n, self.m, self.center)
         else:
             raise ValueError(f"Unsupported manifold type: {self.manifold_type}")
             

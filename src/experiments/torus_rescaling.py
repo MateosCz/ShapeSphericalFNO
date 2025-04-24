@@ -25,7 +25,6 @@ import src.training.trainer as Trainer
 import matplotlib.pyplot as plt
 from src.utils.plotting import plot_trajectory_3d_polyscope, plot_trajectory_3d, visualize_score_field_with_regions, plot_time_slice_shape
 from src.models.neural_operator import CTShapeSFNO
-import open3d as o3d
 from flax.training import checkpoints
 def get_random_int():
     return random.randint(0, 1000000)
@@ -35,32 +34,23 @@ cwd = os.getcwd()
 def project_root():
     return os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 
-def get_bunny_data_with_L(L,path):
-    mesh = o3d.io.read_triangle_mesh(path)
-    sample_num = L * (2*L-1)
-    pcd_bunny = mesh.sample_points_poisson_disk(number_of_points=sample_num)
-    numpy_bunny = np.asarray(pcd_bunny.points)
-    # rescale the bunny to unit sphere
-    numpy_bunny = numpy_bunny * 10 - (-0.2,1.0,0)
-    numpy_bunny_gl = np.reshape(numpy_bunny, (L, 2*L-1, 3))
-    return numpy_bunny_gl
 
 
 if __name__ == "__main__":
     jax.clear_caches()
-    train_steps = 1000
+    train_steps = 3000
     retrain = False
     retrain_steps = 1000
     draw_unconditional = False
     in_grid_L = 12
-    sphere_data_generator_XT = S2ManifoldDataGenerator(radius=0.85, sampling="gl", manifold_type="sphere", seed=get_random_int(), randomization=False)
+    sphere_data_generator_XT = S2ManifoldDataGenerator(major_radius=0.8, minor_radius=0.2, sampling="gl", manifold_type="torus", seed=get_random_int(), randomization=False)
 
     xT = sphere_data_generator_XT.generate_data(in_grid_L, 1)
     print(xT.shape)
-    sphere_data_generator_X0 = S2ManifoldDataGenerator(radius=0.5, sampling="gl", manifold_type="sphere", seed=get_random_int(), randomization=False)
+    sphere_data_generator_X0 = S2ManifoldDataGenerator(major_radius=0.7, minor_radius=0.2, sampling="gl", manifold_type="torus", seed=get_random_int(), randomization=False)
     x0 = sphere_data_generator_X0.generate_data(in_grid_L, 5)
     print(x0.shape)
-    sde_3d = Kunita_Flow_SDE_3D_Eulerian_2Dmanifold_distance(k_alpha=1.6, k_sigma=0.4, grid_num=10, grid_range=[-1,1], x0=x0[0])
+    sde_3d = Kunita_Flow_SDE_3D_Eulerian_2Dmanifold_distance(k_alpha=1.6, k_sigma=0.2, grid_num=10, grid_range=[-1,1], x0=x0[0])
     # sde_3d = Kunita_Flow_SDE_3D_Eulerian_2Dmanifold(k_alpha=1.6, k_sigma=0.4, grid_num=10, grid_range=[-1,1], x0=x0[0])
     # sde_3d = Brownian_Motion_SDE_2D_Manifold(sigma=0.4, x0=x0[0])
     sde_solver = EulerMaruyama.from_sde(sde_3d, 0.02, 1.0, 3, None,debug_mode=False)
@@ -68,11 +58,11 @@ if __name__ == "__main__":
 
     
     if not draw_unconditional:
-        model = CTShapeSFNO(x_feature_dim=3, l_list=(8,8), lift_dim=16, latent_feature_dims=(2,2), sampling="gl", activation="gelu")
+        model = CTShapeSFNO(x_feature_dim=3, l_list=(8,8), lift_dim=16, latent_feature_dims=(4,2), sampling="gl", activation="gelu")
         trainer = Trainer.NeuralOpTrainer(seed=get_random_int(), landmark_num=in_grid_L)
 
-        checkpoint_path = project_root() + '/checkpoints/sphere_model'
-        retrain_checkpoint_path = project_root() + '/checkpoints/sphere_model_retrain'
+        checkpoint_path = project_root() + '/checkpoints/torus_model'
+        retrain_checkpoint_path = project_root() + '/checkpoints/torus_model_retrain'
     
         if not os.path.exists(checkpoint_path):
             train_state = trainer.train_state_init(model, lr=5e-4, model_kwargs={'x': jax.random.normal(jrandom.PRNGKey(get_random_int()), x0[0].shape), 't': jnp.array([0]),'object_fn': 'Yang', 'x_L': in_grid_L})
@@ -98,9 +88,7 @@ if __name__ == "__main__":
         test_L = 40
         score_fn = lambda x, t, x0: train_state.apply_fn(train_state.params, x, t, test_L)
         x0 = sphere_data_generator_X0.generate_data(test_L, 5)
-        # xT = sphere_data_generator_XT.generate_data(test_L, 1)   
-        xT = get_bunny_data_with_L(test_L, project_root() + '/data/test_meshes/bunny.obj')
-        xT = xT[None,:,:,:]
+        xT = sphere_data_generator_XT.generate_data(test_L, 1)   
         sde_3d = Kunita_Flow_SDE_3D_Eulerian_2Dmanifold_distance(k_alpha=1.6, k_sigma=0.4, grid_num=10, grid_range=[-1,1], x0=x0[0])
         # sde_3d = Brownian_Motion_SDE_2D_Manifold(sigma=0.4, x0=x0[0])
         reverse_sde = Time_Reversed_SDE_2Dmanifold_Yang(sde_3d, score_fn, 1.0,0.02)
