@@ -1,0 +1,12 @@
+# ignore all files in the /data directory
+data/*
+
+# ignore all files in the /logs directory
+logs/*
+
+# ignore all files with .png extension
+*.png
+
+# ignore all files with .jpg extension
+*.jpg
+
