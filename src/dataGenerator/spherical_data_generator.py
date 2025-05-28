@@ -3,6 +3,8 @@ import jax.numpy as jnp
 import jax.random as jrandom
 import abc
 import numpy as np
+import open3d as o3d
+from src.utils.geometry import *
 class DataGenerator(abc.ABC):
     def __init__(self):
         pass
@@ -26,7 +28,7 @@ class S2ManifoldDataGenerator(DataGenerator):
     def __init__(self, sampling: str = "mw", manifold_type: str = "sphere", 
                  radius: float = 1.0, height: float = 2.0, minor_radius: float = 0.5, 
                  major_radius: float = 2.0, width: float = 0.5, center: jnp.ndarray = jnp.array([0.0, 0.0, 0.0]), flatten: bool = False, seed=0, randomization: bool = False, epsilon1: float = 1.0, epsilon2: float = 1.0, a: float = 1.0, b: float = 1.0, c: float = 1.0, 
-                 A: float = 0.3, n: int = 4, m: int = 5):
+                 A: float = 0.3, n: int = 4, m: int = 5, file_path: str = None, scale: float = 1.0, src_type: str = 'pcd'):
         """
         Initialize the data generator.
         
@@ -52,6 +54,9 @@ class S2ManifoldDataGenerator(DataGenerator):
         self.A = A
         self.n = n
         self.m = m
+        self.file_path = file_path
+        self.scale = scale
+        self.src_type = src_type
     def generate_sampling_grid(self, L, sampling='mw'):
         """
         Generate angular sampling grid based on the requested scheme.
@@ -431,6 +436,170 @@ class S2ManifoldDataGenerator(DataGenerator):
         pts = pts + center[None, None, :]
         return pts
     
+    # def real_data(self, theta_grid, phi_grid, center=None, file_path=None, scale=1.0, src_type='pcd', normalize=True):
+    #     n_lat = theta_grid.shape[0]
+    #     n_lon = theta_grid.shape[1]
+    #     if center is None:
+    #         center = jnp.array([0.0, 0.0, 0.0])
+    #     if file_path is None:
+    #         raise ValueError("file_path is required")
+    #     if scale is None:
+    #         scale = 1.0
+    #     if src_type == 'pcd':
+    #         pcd = o3d.io.read_point_cloud(file_path)
+    #         points = jnp.asarray(pcd.sample_points_poisson_disk(number_of_points=n_lat * n_lon).points)
+    #     elif src_type == 'mesh':
+    #         mesh = o3d.io.read_triangle_mesh(file_path)
+    #         points = jnp.asarray(mesh.sample_points_poisson_disk(number_of_points=n_lat * n_lon).points)
+    #     else:
+    #         raise ValueError(f"Unsupported source type: {src_type}")
+    #     if normalize:
+    #         points = points - points.mean(axis=0)
+    #         points = points / points.std(axis=0)
+    #     points = points.reshape(n_lat, n_lon, 3)
+    #     points = points * scale
+    #     points = points + center[None, None, :]
+    #     return points
+    
+    # def real_data(self, theta_grid, phi_grid, center=None, file_path=None, scale=1.0, src_type='pcd', normalize=True):
+    #     n_lat = theta_grid.shape[0]
+    #     n_lon = theta_grid.shape[1]
+    #     if center is None:
+    #         center = jnp.array([0.0, 0.0, 0.0])
+    #     if file_path is None:
+    #         raise ValueError("file_path is required")
+    #     if scale is None:
+    #         scale = 1.0
+    #     if src_type == 'pcd':
+    #         pcd = o3d.io.read_point_cloud(file_path)
+    #         points = jnp.asarray(pcd.sample_points_poisson_disk(number_of_points=4*n_lat * n_lon).points) # sample more points for better surface
+    #     elif src_type == 'mesh':
+    #         mesh = o3d.io.read_triangle_mesh(file_path)
+    #         points = jnp.asarray(mesh.sample_points_poisson_disk(number_of_points=4*n_lat * n_lon).points)
+    #     else:
+    #         raise ValueError(f"Unsupported source type: {src_type}")
+    #     if normalize:
+    #         points = points - points.mean(axis=0)
+    #         points = points / points.std(axis=0)
+    #     points = points * scale
+    #     surface_radii = jnp.linalg.norm(points, axis=1, keepdims=True)
+    #     normalized_points = points / surface_radii
+    #     x,y,z = normalized_points[:,0], normalized_points[:,1], normalized_points[:,2]
+    #     surface_theta = jnp.arccos(jnp.clip(z, -1.0, 1.0))
+    #     surface_phi = jnp.arctan2(y, x)
+    #     print(surface_theta.shape, surface_phi.shape)
+    #     theta_flat = theta_grid.flatten()
+    #     phi_flat = phi_grid.flatten()
+    #     def find_nearest_surface_point(target_theta, target_phi):
+    #         """Find nearest surface point for target point"""
+    #         distances = jax.vmap(lambda st, sp: spherical_distance(target_theta, target_phi, st, sp))(
+    #             surface_theta, surface_phi
+    #         )
+    #         nearest_idx = jnp.argmin(distances)
+    #         return nearest_idx, surface_radii[nearest_idx,0]
+    #     nearest_indices, mapped_radii = jax.vmap(find_nearest_surface_point)(theta_flat, phi_flat)
+
+    #     target_x = jnp.sin(theta_flat) * jnp.cos(phi_flat)
+    #     target_y = jnp.sin(theta_flat) * jnp.sin(phi_flat)
+    #     target_z = jnp.cos(theta_flat)
+    #     target_points = jnp.stack([target_x, target_y, target_z], axis=-1)
+    #     mapped_points = target_points[nearest_indices, :]
+    #     mapped_points = mapped_points * mapped_radii[:, None]
+    #     mapped_points = mapped_points + center[None, None, :]
+
+    #     # points = points + center[None, None, :]
+    #     return mapped_points
+    
+    def real_data(self, theta_grid, phi_grid, center=None, file_path=None, scale=1.0, src_type='pcd', normalize=True):
+        """
+        Map bunny surface sampling points to spherical coordinate system using JAX
+        
+        Args:
+            theta_grid: Polar angle grid (n_lat, n_lon)
+            phi_grid: Azimuthal angle grid (n_lat, n_lon) 
+            center: Center point coordinates
+            file_path: File path
+            scale: Scaling factor
+            src_type: Source file type ('pcd' or 'mesh')
+            normalize: Whether to normalize
+        
+        Returns:
+            mapped_points: Points mapped to spherical grid (n_lat, n_lon, 3)
+        """
+        n_lat, n_lon = theta_grid.shape
+        
+        if center is None:
+            center = jnp.array([0.0, 0.0, 0.0])
+        if file_path is None:
+            raise ValueError("file_path is required")
+        
+        # 1. Load and sample point cloud/mesh
+        if src_type == 'pcd':
+            pcd = o3d.io.read_point_cloud(file_path)
+            sampled_pcd = pcd.sample_points_poisson_disk(number_of_points=n_lat * n_lon * 4)
+            surface_points = jnp.asarray(sampled_pcd.points)
+        elif src_type == 'mesh':
+            mesh = o3d.io.read_triangle_mesh(file_path)
+            sampled_pcd = mesh.sample_points_poisson_disk(number_of_points=n_lat * n_lon * 4)
+            surface_points = jnp.asarray(sampled_pcd.points)
+        else:
+            raise ValueError(f"Unsupported source type: {src_type}")
+        
+        # 2. Preprocess surface points
+        if normalize:
+            surface_points = surface_points - jnp.mean(surface_points, axis=0)
+            surface_norms = jnp.linalg.norm(surface_points, axis=1, keepdims=True)
+            surface_points = surface_points / jnp.mean(surface_norms)
+        
+        surface_points = surface_points * scale + center
+        
+        # 3. Project surface points to unit sphere and compute spherical coordinates
+        surface_points_centered = surface_points - center
+        surface_radii = jnp.linalg.norm(surface_points_centered, axis=1, keepdims=True)
+        surface_points_normalized = surface_points_centered / (surface_radii + 1e-8)
+        
+        # Compute spherical coordinates of surface points
+        x, y, z = surface_points_normalized[:, 0], surface_points_normalized[:, 1], surface_points_normalized[:, 2]
+        surface_theta = jnp.arccos(jnp.clip(z, -1.0, 1.0))  # Polar angle [0, π]
+        surface_phi = jnp.arctan2(y, x)  # Azimuthal angle [-π, π]
+        
+        # 4. Generate target spherical grid coordinates
+        theta_flat = theta_grid.flatten()
+        phi_flat = phi_grid.flatten()
+        
+        # 5. Perform nearest neighbor search using JAX (spherical distance)
+        def spherical_distance(theta1, phi1, theta2, phi2):
+            """Calculate distance between two points on sphere"""
+            # Using variant of haversine formula
+            dtheta = theta2 - theta1
+            dphi = phi2 - phi1
+            a = jnp.sin(dtheta/2)**2 + jnp.sin(theta1) * jnp.sin(theta2) * jnp.sin(dphi/2)**2
+            return 2 * jnp.arcsin(jnp.sqrt(jnp.clip(a, 0, 1)))
+        
+        def find_nearest_surface_point(target_theta, target_phi):
+            """Find nearest surface point for target point"""
+            distances = jax.vmap(lambda st, sp: spherical_distance(target_theta, target_phi, st, sp))(
+                surface_theta, surface_phi
+            )
+            nearest_idx = jnp.argmin(distances)
+            return nearest_idx, surface_radii[nearest_idx, 0]
+        
+        # Perform nearest neighbor search for all target points
+        indices_and_radii = jax.vmap(find_nearest_surface_point)(theta_flat, phi_flat)
+        nearest_indices, mapped_radii = indices_and_radii
+        
+        # 6. Generate final mapped points
+        target_x = jnp.sin(theta_flat) * jnp.cos(phi_flat)
+        target_y = jnp.sin(theta_flat) * jnp.sin(phi_flat)
+        target_z = jnp.cos(theta_flat)
+        
+        target_points = jnp.stack([target_x, target_y, target_z], axis=1)
+        mapped_points = target_points * mapped_radii[:, None] + center[None, :]
+        mapped_points = mapped_points.reshape(n_lat, n_lon, 3)
+        
+        return mapped_points
+
+    
     def _generate_data_single(self, L, sampling, key):
         theta_grid, phi_grid, ntheta, nphi = self.generate_sampling_grid(L, sampling)
         if self.manifold_type == 'sphere':
@@ -453,10 +622,13 @@ class S2ManifoldDataGenerator(DataGenerator):
             points = self.superellipsoid(theta_grid, phi_grid, self.a, self.b, self.c, self.epsilon1, self.epsilon2, self.center)
         elif self.manifold_type == 'bump_sphere':
             points = self.bump_sphere(theta_grid, phi_grid, self.radius, self.A, self.n, self.m, self.center)
+        elif self.manifold_type == 'real_data':
+            points = self.real_data(theta_grid, phi_grid, self.center, self.file_path, self.scale, self.src_type)
         else:
             raise ValueError(f"Unsupported manifold type: {self.manifold_type}")
             
         return points
+    
 
         
     

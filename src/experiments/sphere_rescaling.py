@@ -98,9 +98,9 @@ if __name__ == "__main__":
         test_L = 40
         score_fn = lambda x, t, x0: train_state.apply_fn(train_state.params, x, t, test_L)
         x0 = sphere_data_generator_X0.generate_data(test_L, 5)
-        # xT = sphere_data_generator_XT.generate_data(test_L, 1)   
-        xT = get_bunny_data_with_L(test_L, project_root() + '/data/test_meshes/bunny.obj')
-        xT = xT[None,:,:,:]
+        xT = sphere_data_generator_XT.generate_data(test_L, 1)   
+        # xT = get_bunny_data_with_L(test_L, project_root() + '/data/test_meshes/bunny.obj')
+        # xT = xT[None,:,:,:]
         sde_3d = Kunita_Flow_SDE_3D_Eulerian_2Dmanifold_distance(k_alpha=1.6, k_sigma=0.4, grid_num=10, grid_range=[-1,1], x0=x0[0])
         # sde_3d = Brownian_Motion_SDE_2D_Manifold(sigma=0.4, x0=x0[0])
         reverse_sde = Time_Reversed_SDE_2Dmanifold_Yang(sde_3d, score_fn, 1.0,0.02)
