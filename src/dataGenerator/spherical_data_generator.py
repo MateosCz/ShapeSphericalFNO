@@ -5,6 +5,7 @@ import abc
 import numpy as np
 import open3d as o3d
 from src.utils.geometry import *
+import healpy as hp
 class DataGenerator(abc.ABC):
     def __init__(self):
         pass
@@ -57,7 +58,7 @@ class S2ManifoldDataGenerator(DataGenerator):
         self.file_path = file_path
         self.scale = scale
         self.src_type = src_type
-    def generate_sampling_grid(self, L, sampling='mw'):
+    def generate_sampling_grid(self, L, nside=None, sampling='mw'):
         """
         Generate angular sampling grid based on the requested scheme.
         
@@ -83,7 +84,7 @@ class S2ManifoldDataGenerator(DataGenerator):
                 theta = jrandom.uniform(key, (ntheta,), minval=0, maxval=jnp.pi)
                 phi = jrandom.uniform(key, (nphi,), minval=0, maxval=2*jnp.pi)
             else:
-                theta = jnp.linspace(0, jnp.pi, ntheta, endpoint=True)
+                theta = jnp.pi * (jnp.arange(L) + 0.5) / L
                 phi = jnp.linspace(0, 2*jnp.pi, nphi, endpoint=False)
             
         elif sampling == 'mwss':
@@ -117,7 +118,14 @@ class S2ManifoldDataGenerator(DataGenerator):
             else:
                 theta = jnp.flip(jnp.arccos(nodes))
             phi = jnp.linspace(0, 2 * jnp.pi, nphi, endpoint=False)
-            
+        elif sampling == 'healpix':
+            if nside is None:
+                raise ValueError("nside must be provided for healpix sampling")
+            npix = hp.nside2npix(nside)
+            theta, phi = hp.pix2ang(nside, np.arange(npix))
+            theta = jnp.array(theta)
+            phi = jnp.array(phi)
+            return theta, phi, len(theta), 1  # fake nphi = 1 just for shape
         else:
             raise ValueError(f"Unsupported sampling scheme: {sampling}. Use 'mw', 'mwss', 'dh', or 'gl'")
         
@@ -510,7 +518,7 @@ class S2ManifoldDataGenerator(DataGenerator):
     #     # points = points + center[None, None, :]
     #     return mapped_points
     
-    def real_data(self, theta_grid, phi_grid, center=None, file_path=None, scale=1.0, src_type='pcd', normalize=True):
+    def real_data(self, theta_grid, phi_grid, center=None, file_path=None, scale=1.0, src_type='pcd', normalize=True, healpix=False):
         """
         Map bunny surface sampling points to spherical coordinate system using JAX
         
@@ -526,7 +534,11 @@ class S2ManifoldDataGenerator(DataGenerator):
         Returns:
             mapped_points: Points mapped to spherical grid (n_lat, n_lon, 3)
         """
-        n_lat, n_lon = theta_grid.shape
+        if healpix == False:
+            n_lat, n_lon = theta_grid.shape
+        else:
+            n_lat = len(theta_grid)
+            n_lon = len(phi_grid)
         
         if center is None:
             center = jnp.array([0.0, 0.0, 0.0])
@@ -540,7 +552,10 @@ class S2ManifoldDataGenerator(DataGenerator):
             surface_points = jnp.asarray(sampled_pcd.points)
         elif src_type == 'mesh':
             mesh = o3d.io.read_triangle_mesh(file_path)
-            sampled_pcd = mesh.sample_points_poisson_disk(number_of_points=n_lat * n_lon * 4)
+            if healpix:
+                sampled_pcd = mesh.sample_points_poisson_disk(number_of_points=n_lat * 4)
+            else:
+                sampled_pcd = mesh.sample_points_poisson_disk(number_of_points=n_lat * n_lon * 4)
             surface_points = jnp.asarray(sampled_pcd.points)
         else:
             raise ValueError(f"Unsupported source type: {src_type}")
@@ -564,8 +579,12 @@ class S2ManifoldDataGenerator(DataGenerator):
         surface_phi = jnp.arctan2(y, x)  # Azimuthal angle [-π, π]
         
         # 4. Generate target spherical grid coordinates
-        theta_flat = theta_grid.flatten()
-        phi_flat = phi_grid.flatten()
+        if healpix:
+            theta_flat = theta_grid.flatten()
+            phi_flat = phi_grid.flatten()
+        else:
+            theta_flat = theta_grid.flatten()
+            phi_flat = phi_grid.flatten()
         
         # 5. Perform nearest neighbor search using JAX (spherical distance)
         def spherical_distance(theta1, phi1, theta2, phi2):
@@ -595,13 +614,16 @@ class S2ManifoldDataGenerator(DataGenerator):
         
         target_points = jnp.stack([target_x, target_y, target_z], axis=1)
         mapped_points = target_points * mapped_radii[:, None] + center[None, :]
-        mapped_points = mapped_points.reshape(n_lat, n_lon, 3)
+        if healpix:
+            mapped_points = mapped_points
+        else:
+            mapped_points = mapped_points.reshape(n_lat, n_lon, 3)
         
         return mapped_points
 
     
-    def _generate_data_single(self, L, sampling, key):
-        theta_grid, phi_grid, ntheta, nphi = self.generate_sampling_grid(L, sampling)
+    def _generate_data_single(self, L, sampling, key, nside=None, healpix = False):
+        theta_grid, phi_grid, ntheta, nphi = self.generate_sampling_grid(L, nside, sampling)
         if self.manifold_type == 'sphere':
             points = self.sphere(theta_grid, phi_grid, self.radius, self.center)
         elif self.manifold_type == 'cylinder':
@@ -623,7 +645,7 @@ class S2ManifoldDataGenerator(DataGenerator):
         elif self.manifold_type == 'bump_sphere':
             points = self.bump_sphere(theta_grid, phi_grid, self.radius, self.A, self.n, self.m, self.center)
         elif self.manifold_type == 'real_data':
-            points = self.real_data(theta_grid, phi_grid, self.center, self.file_path, self.scale, self.src_type)
+            points = self.real_data(theta_grid, phi_grid, self.center, self.file_path, self.scale, self.src_type, healpix=healpix)
         else:
             raise ValueError(f"Unsupported manifold type: {self.manifold_type}")
             
@@ -632,7 +654,7 @@ class S2ManifoldDataGenerator(DataGenerator):
 
         
     
-    def generate_data(self, L, batch_size=1, **kwargs):
+    def generate_data(self, L, nside=None, batch_size=1, healpix=False, **kwargs):
         """
         Generate data on the specified manifold with s2fft-compatible sampling.
         
@@ -670,10 +692,10 @@ class S2ManifoldDataGenerator(DataGenerator):
         if batch_size > 1:
             self.key, key_new = jrandom.split(self.key)
             key_new = jrandom.split(key_new, batch_size)
-            points = jax.vmap(self._generate_data_single, in_axes=(None, None, 0))(L, self.sampling, key_new)
+            points = jax.vmap(self._generate_data_single, in_axes=(None, None, 0))(L, self.sampling, key_new, nside, healpix=healpix)
             # print(points.shape)
         else:
-            points = self._generate_data_single(L, self.sampling, self.key)
+            points = self._generate_data_single(L, self.sampling, self.key, nside, healpix=healpix)
             points = points[None, ...]
             # print(points.shape)
         

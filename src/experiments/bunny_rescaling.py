@@ -43,7 +43,7 @@ if __name__ == "__main__":
     retrain_steps = 1000
     draw_unconditional = False
     in_grid_L = 12
-    sphere_data_generator_XT = S2ManifoldDataGenerator(sampling="gl", manifold_type='real_data', file_path=project_root() + "/data/test_meshes/bunny.obj", scale=0.58, src_type='mesh')
+    sphere_data_generator_XT = S2ManifoldDataGenerator(sampling="gl", manifold_type='real_data', file_path=project_root() + "/data/test_meshes/bunny.obj", scale=0.65, src_type='mesh')
     sphere_data_generator_X0 = S2ManifoldDataGenerator(sampling="gl", manifold_type='real_data', file_path=project_root() + "/data/test_meshes/bunny.obj", scale=0.5, src_type='mesh')
 
     xT = sphere_data_generator_XT.generate_data(in_grid_L, 1)
@@ -58,7 +58,7 @@ if __name__ == "__main__":
 
     
     if not draw_unconditional:
-        model = CTShapeSFNO(x_feature_dim=3, l_list=(8,8), lift_dim=16, latent_feature_dims=(1,2), sampling="gl", activation="gelu")
+        model = CTShapeSFNO(x_feature_dim=3, l_list=(16,8), lift_dim=16, latent_feature_dims=(1,2), sampling="gl", activation="gelu")
         trainer = Trainer.NeuralOpTrainer(seed=get_random_int(), landmark_num=in_grid_L)
 
         checkpoint_path = project_root() + '/checkpoints/bunny_model'
@@ -100,7 +100,7 @@ if __name__ == "__main__":
         score_lst = jax.vmap(score_fn, in_axes=(0, 0, None))(condition_xs[:-1], time_lst, x0[0])
         print("score_lst.shape", score_lst.shape)
         condition_xs = condition_xs + x0[0]
-        plot_time_slice_shape(x0[0], xT[0], condition_xs)
+        # plot_time_slice_shape(x0[0], xT[0], condition_xs)
         condition_xs = condition_xs.reshape(condition_xs.shape[0], -1, 3)
         # condition_xs = xs
         condition_xs = np.array(condition_xs)
@@ -150,7 +150,7 @@ if __name__ == "__main__":
     def imgui_callback():
         global time
         global frame_idx
-        
+
         frame_idx = int(time/dt)
         ps_cloud = ps.register_point_cloud("my points", trajectory_xs[frame_idx])
         axis_length = 2.0
@@ -203,7 +203,8 @@ if __name__ == "__main__":
             ps.get_curve_network("x-axis").set_color((1,0,0))  # Red for X
             ps.get_curve_network("y-axis").set_color((0,1,0))  # Green for Y
             ps.get_curve_network("z-axis").set_color((0,0,1))  # Blue for Z
-            plot_trajectory_3d_polyscope(trajectory_xs, frame_idx, "reverse_trajectory", simplified=False)
+            # if plot_trajectory:
+            #     plot_trajectory_3d_polyscope(trajectory_xs, frame_idx, "reverse_trajectory", simplified=False)
 
     ps.set_user_callback(imgui_callback)
 
