@@ -22,8 +22,9 @@ from src.stochastics.sde_solver import *
 import random
 import polyscope as ps
 import src.training.trainer as Trainer
+import open3d as o3d
 import matplotlib.pyplot as plt
-from src.utils.plotting import plot_trajectory_3d_polyscope, plot_trajectory_3d, visualize_score_field_with_regions, plot_time_slice_shape
+from src.utils.plotting import plot_trajectory_3d_polyscope, plot_trajectory_3d, visualize_score_field_with_regions, plot_time_slice_shape, ps_3d_time_slice
 from src.models.neural_operator import CTShapeSFNO
 from flax.training import checkpoints
 def get_random_int():
@@ -127,85 +128,110 @@ if __name__ == "__main__":
 
     # Create a new figure
 
-    ps.init()
-    # global frame_idx
-    time = 0.0
-    total_time = 1.0
-    dt = 0.02
-    frame_idx = 0
+    # ps.init()
+    # # global frame_idx
+    # time = 0.0
+    # total_time = 1.0
+    # dt = 0.02
+    # frame_idx = 0
 
-    ps.set_ground_plane_mode("shadow_only") 
-    ps.set_ground_plane_height_mode("manual")
-    ps.set_ground_plane_height(-0.2)
-    ps.set_view_projection_mode("orthographic")
-    ps.look_at((2., 2., 2.), (0., 0., 0.))
-    def active_animation():
-        for x in trajectory_xs[0]:
-            ps_cloud = ps.register_point_cloud("my points", x)
+    # ps.set_ground_plane_mode("shadow_only") 
+    # ps.set_ground_plane_height_mode("manual")
+    # ps.set_ground_plane_height(-0.2)
+    # ps.set_view_projection_mode("orthographic")
+    # ps.look_at((2., 2., 2.), (0., 0., 0.))
+    # def active_animation():
+    #     for x in trajectory_xs[0]:
+    #         ps_cloud = ps.register_point_cloud("my points", x)
 
-            # ps_mesh.add_scalar_quantity("scalar", xs[:, 0], enabled=True)
+    #         # ps_mesh.add_scalar_quantity("scalar", xs[:, 0], enabled=True)
 
 
 
-    def imgui_callback():
-        global time
-        global frame_idx
+    # def imgui_callback():
+    #     global time
+    #     global frame_idx
         
-        frame_idx = int(time/dt)
-        ps_cloud = ps.register_point_cloud("my points", trajectory_xs[frame_idx])
-        axis_length = 2.0
-        x_axis = np.array([[0,0,0], [axis_length,0,0]])
-        y_axis = np.array([[0,0,0], [0,axis_length,0]])
-        z_axis = np.array([[0,0,0], [0,0,axis_length]])
+    #     frame_idx = int(time/dt)
+    #     ps_cloud = ps.register_point_cloud("my points", trajectory_xs[frame_idx])
+    #     axis_length = 2.0
+    #     x_axis = np.array([[0,0,0], [axis_length,0,0]])
+    #     y_axis = np.array([[0,0,0], [0,axis_length,0]])
+    #     z_axis = np.array([[0,0,0], [0,0,axis_length]])
 
-        ps.register_curve_network("x-axis", np.array([[0,0,0], [axis_length,0,0]]), np.array([[0,1]]))
-        ps.register_curve_network("y-axis", np.array([[0,0,0], [0,axis_length,0]]), np.array([[0,1]]))
-        ps.register_curve_network("z-axis", np.array([[0,0,0], [0,0,axis_length]]), np.array([[0,1]]))
+    #     ps.register_curve_network("x-axis", np.array([[0,0,0], [axis_length,0,0]]), np.array([[0,1]]))
+    #     ps.register_curve_network("y-axis", np.array([[0,0,0], [0,axis_length,0]]), np.array([[0,1]]))
+    #     ps.register_curve_network("z-axis", np.array([[0,0,0], [0,0,axis_length]]), np.array([[0,1]]))
 
-        # Set axis colors
-        ps.get_curve_network("x-axis").set_color((1,0,0))  # Red for X
-        ps.get_curve_network("y-axis").set_color((0,1,0))  # Green for Y
-        ps.get_curve_network("z-axis").set_color((0,0,1))  # Blue for Z
+    #     # Set axis colors
+    #     ps.get_curve_network("x-axis").set_color((1,0,0))  # Red for X
+    #     ps.get_curve_network("y-axis").set_color((0,1,0))  # Green for Y
+    #     ps.get_curve_network("z-axis").set_color((0,0,1))  # Blue for Z
 
         
 
 
 
-        changed, time = psim.SliderFloat("Time", time, v_min=0,v_max=total_time)
+    #     changed, time = psim.SliderFloat("Time", time, v_min=0,v_max=total_time)
 
-        if changed:
-            ps.remove_all_structures()
-            frame_idx = int(time/dt)
-            time = frame_idx*dt
-            ps_cloud = ps.register_point_cloud("my points", trajectory_xs[frame_idx])
-            axis_length = 2.0
-            x_axis = np.array([[0,0,0], [axis_length,0,0]])
-            y_axis = np.array([[0,0,0], [0,axis_length,0]])
-            z_axis = np.array([[0,0,0], [0,0,axis_length]])
+    #     if changed:
+    #         ps.remove_all_structures()
+    #         frame_idx = int(time/dt)
+    #         time = frame_idx*dt
+    #         ps_cloud = ps.register_point_cloud("my points", trajectory_xs[frame_idx])
+    #         axis_length = 2.0
+    #         x_axis = np.array([[0,0,0], [axis_length,0,0]])
+    #         y_axis = np.array([[0,0,0], [0,axis_length,0]])
+    #         z_axis = np.array([[0,0,0], [0,0,axis_length]])
 
-            ps_cloud_x0 = ps.register_point_cloud("x0", x0[0])
-            ps_cloud_x0.set_material("wax")
-            ps_cloud_x0.set_radius(0.005)
-            ps_cloud_x0.set_color((1.0,0.3,0.3))
-            ps_cloud_x0.set_transparency(0.5)
+    #         ps_cloud_x0 = ps.register_point_cloud("x0", x0[0])
+    #         ps_cloud_x0.set_material("wax")
+    #         ps_cloud_x0.set_radius(0.005)
+    #         ps_cloud_x0.set_color((1.0,0.3,0.3))
+    #         ps_cloud_x0.set_transparency(0.5)
 
-            ps_cloud_xT = ps.register_point_cloud("xT", xT[0])
-            ps_cloud_xT.set_material("wax")
-            ps_cloud_xT.set_radius(0.005)
-            ps_cloud_xT.set_color((0.3,1.0,0.3))
-            ps_cloud_xT.set_transparency(0.5)
+    #         ps_cloud_xT = ps.register_point_cloud("xT", xT[0])
+    #         ps_cloud_xT.set_material("wax")
+    #         ps_cloud_xT.set_radius(0.005)
+    #         ps_cloud_xT.set_color((0.3,1.0,0.3))
+    #         ps_cloud_xT.set_transparency(0.5)
 
-            ps.register_curve_network("x-axis", np.array([[0,0,0], [axis_length,0,0]]), np.array([[0,1]]))
-            ps.register_curve_network("y-axis", np.array([[0,0,0], [0,axis_length,0]]), np.array([[0,1]]))
-            ps.register_curve_network("z-axis", np.array([[0,0,0], [0,0,axis_length]]), np.array([[0,1]]))
+    #         ps.register_curve_network("x-axis", np.array([[0,0,0], [axis_length,0,0]]), np.array([[0,1]]))
+    #         ps.register_curve_network("y-axis", np.array([[0,0,0], [0,axis_length,0]]), np.array([[0,1]]))
+    #         ps.register_curve_network("z-axis", np.array([[0,0,0], [0,0,axis_length]]), np.array([[0,1]]))
 
-            # Set axis colors
-            ps.get_curve_network("x-axis").set_color((1,0,0))  # Red for X
-            ps.get_curve_network("y-axis").set_color((0,1,0))  # Green for Y
-            ps.get_curve_network("z-axis").set_color((0,0,1))  # Blue for Z
-            plot_trajectory_3d_polyscope(trajectory_xs, frame_idx, "reverse_trajectory", simplified=False)
+    #         # Set axis colors
+    #         ps.get_curve_network("x-axis").set_color((1,0,0))  # Red for X
+    #         ps.get_curve_network("y-axis").set_color((0,1,0))  # Green for Y
+    #         ps.get_curve_network("z-axis").set_color((0,0,1))  # Blue for Z
+    #         plot_trajectory_3d_polyscope(trajectory_xs, frame_idx, "reverse_trajectory", simplified=False)
 
-    ps.set_user_callback(imgui_callback)
+    # ps.set_user_callback(imgui_callback)
 
-    # visualize_score_field_with_regions(score_lst, condition_xs, dt=0.01, scale=10.0, radius=1.0)
-    ps.show()
+    # # visualize_score_field_with_regions(score_lst, condition_xs, dt=0.01, scale=10.0, radius=1.0)
+    # ps.show()
+
+    test_L = 30
+    #test_L = 50
+    def normalize_mesh(mesh, rescale_factor=1.0):
+        vertices = np.asarray(mesh.vertices)
+        vertices = vertices - np.mean(vertices, axis=0)
+        vertices = vertices / np.mean(np.linalg.norm(vertices, axis=1, keepdims=True))
+        vertices = vertices * rescale_factor
+        mesh.vertices = o3d.utility.Vector3dVector(vertices)
+        return mesh
+    # mesh_path = project_root() + "/data/bunny/bunny.stl"
+    # reconstruct the mesh given the point cloud x_0
+    x_0 = np.array(x0[0])
+    o3d_x_0 = o3d.geometry.PointCloud()
+    o3d_x_0.points = o3d.utility.Vector3dVector(x_0)
+    o3d_x_0.normals = o3d.utility.Vector3dVector(np.zeros((1, 3)))
+    o3d_x_0.estimate_normals()
+    radii = [0.005, 0.01, 0.02, 0.04]
+    x0_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(o3d_x_0, o3d.utility.DoubleVector(radii))
+    # x0_mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(o3d_x_0, depth=9)
+    # x0_mesh = x0_mesh.simplify_quadric_decimation(10000)
+    # x0_mesh = normalize_mesh(x0_mesh, 0.5)
+    save_path = project_root() + "/figures/thesis/"
+
+    ps_3d_time_slice(condition_xs, [0,0.3,0.6,1.0], x_T_mesh=x0_mesh, show_traj=False, save_path=save_path, store_title="bump_sphere_tosphere_L_"+str(test_L))

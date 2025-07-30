@@ -4,6 +4,7 @@ import jax
 import matplotlib.collections as mcoll
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
+import open3d as o3d
 def plot_trajectory_2d(trajectory, title, trajectory_alpha=0.8, start_shape_name='start', end_shape_name='end', simplified=True):
     # trajectory: (time_steps, landmark_num, 2)
     fig, ax = plt.subplots()
@@ -534,3 +535,48 @@ def plot_time_slice_shape(x0_eval, xT_eval, xt, ts=None):
     plt.subplots_adjust(top=1.0)  # 给 legend 留空间
     plt.savefig("time_slice_shape_kunita_sphere.png", dpi=300)
     plt.show()
+
+def ps_3d_time_slice(xs, time_slice, x_T_mesh = None, show_traj=False, save_path=None, store_title=None):
+    import polyscope as ps
+    import polyscope.imgui as psim
+    import numpy as np
+    '''
+    xs: (n_time, num_landmark, 3) numpy array
+    time_slice: (n_time,) numpy array
+    x_T_mesh: o3d.geometry.TriangleMesh
+    show_traj: bool
+    save_path: str
+    store_title: str
+    '''
+    
+    if store_title is None:
+        store_title = "3D Time Slice"
+    for i, t_query in enumerate(time_slice):
+        ps.remove_all_structures()
+        ps.init()
+        ps.set_window_size(800, 600)
+        index = int(t_query*(len(xs)-1))
+        x = xs[index]
+        x = x.reshape(-1,3)
+        current_store_title = store_title + f"time_{t_query:.2f}"
+        # register the point cloud, color is default blue
+        ps.register_point_cloud(current_store_title, x, radius=0.005, color=[0.2, 0.6, 1.0])
+        if x_T_mesh is not None:
+            
+            x_T_vertices = np.asarray(x_T_mesh.vertices)
+            x_T_triangles = np.asarray(x_T_mesh.triangles)
+            # set the transparency to 0.5, set the color to gray
+            ps.register_surface_mesh(store_title + "_xT", x_T_vertices, x_T_triangles, transparency=0.5, color=[0.8, 0.8, 0.8])
+        if show_traj:
+            plot_trajectory_3d_polyscope(xs, index, current_store_title+ "_traj", simplified=False)
+        
+        ps.show()
+        if save_path is not None:
+            ps.screenshot(save_path + f"{current_store_title}.png")
+
+
+
+    
+    
+
+    

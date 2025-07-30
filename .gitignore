@@ -10,3 +10,19 @@ logs/*
 # ignore all files with .jpg extension
 *.jpg
 
+# ignore all files with .jpeg extension
+*.jpeg
+
+# ignore all files with .gif extension
+*.gif
+
+
+
+# ignore all files with .pdf extension
+*.pdf
+
+# ignore all files with .docx extension
+*.docx
+
+# ignore all files with .doc extension
+*.doc
